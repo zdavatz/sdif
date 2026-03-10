@@ -64,6 +64,7 @@
   .interaction-desc { font-size: 0.88rem; color: #444; line-height: 1.6; max-height: 4.8em; overflow: hidden; position: relative; }
   .interaction-desc.expanded { max-height: none; }
   .expand-btn { font-size: 0.8rem; color: #2563eb; cursor: pointer; margin-top: 4px; display: inline-block; }
+  .fi-quality-hint { font-size: 0.78rem; color: #b45309; background: #fef3c7; padding: 3px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; }
 
   /* Search tab */
   .search-results-count { color: #666; font-size: 0.9rem; margin-bottom: 12px; }
@@ -75,8 +76,8 @@
   .class-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   .class-table th { background: #f0f4f8; padding: 10px 12px; text-align: left; border-bottom: 2px solid #ddd; cursor: pointer; user-select: none; white-space: nowrap; }
   .class-table th:hover { background: #e2e8f0; }
-  .class-table th.sort-asc::after { content: " \u25b2"; font-size: 0.7rem; }
-  .class-table th.sort-desc::after { content: " \u25bc"; font-size: 0.7rem; }
+  .class-table th.sort-asc::after { content: " \25b2"; font-size: 0.7rem; }
+  .class-table th.sort-desc::after { content: " \25bc"; font-size: 0.7rem; }
   .class-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
   .class-table tr:hover { background: #f8fafc; }
   .class-table .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -100,9 +101,9 @@
       <input type="text" id="drug-input" placeholder="Medikament suchen (Markenname oder Wirkstoff)..." autocomplete="off">
       <div class="autocomplete" id="autocomplete"></div>
     </div>
-    <p class="basket-info">Medikamente im Warenkorb:</p>
+    <p class="basket-info" style="display:none">Medikamente im Warenkorb:</p>
     <div class="basket" id="basket"></div>
-    <div class="actions">
+    <div class="actions" style="display:none">
       <button class="btn btn-clear" id="clear-btn">Leeren</button>
     </div>
     <div class="results" id="check-results"></div>
@@ -279,6 +280,9 @@ function removeFromBasket(idx) {
 
 function renderBasket() {
   const el = document.getElementById('basket');
+  const empty = basket.length === 0;
+  document.querySelector('.basket-info').style.display = empty ? 'none' : '';
+  document.querySelector('.actions').style.display = empty ? 'none' : '';
   el.innerHTML = basket.map((d, i) =>
     `<span class="basket-drug">
       <strong>${esc(d.brand)}</strong> <span class="atc">[${esc(d.atc_code)}]</span>
@@ -310,6 +314,20 @@ async function checkInteractions() {
     return;
   }
 
+  // Detect asymmetric severity between bidirectional pairs
+  const pairMax = {};
+  for (const ix of data.interactions) {
+    const key = [ix.drug_a, ix.drug_b].sort().join('||');
+    pairMax[key] = Math.max(pairMax[key] || 0, ix.severity_score);
+  }
+  for (const ix of data.interactions) {
+    const key = [ix.drug_a, ix.drug_b].sort().join('||');
+    const max = pairMax[key];
+    if (ix.severity_score < max) {
+      ix._fiHint = `Gegenrichtung hat höhere Einstufung — diese FI stuft die Interaktion tiefer ein`;
+    }
+  }
+
   resultsEl.innerHTML = data.interactions.map(renderInteraction).join('');
   attachExpandHandlers();
 }
@@ -327,6 +345,7 @@ function renderInteraction(ix) {
     ${explanation}
     <div class="interaction-desc">${decodeAndEsc(ix.description)}</div>
     <span class="expand-btn">mehr anzeigen</span>
+    ${ix._fiHint ? `<div class="fi-quality-hint">${esc(ix._fiHint)}</div>` : ''}
   </div>`;
 }
 

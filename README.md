@@ -108,7 +108,7 @@ sdif serve -p 8080   # custom port
 ```
 
 Features:
-- **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, color-coded severity cards with explanations
+- **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, color-coded severity cards with explanations, FI quality hints for asymmetric severity between bidirectional pairs
 - **Klinische Suche**: Full-text search with type-ahead suggestions and hit counts (e.g. type "QT" to see "QT-Verlängerung (14)", "QT-Intervall (72)")
 - **ATC-Klassen**: Overview of all 42 ATC class-level interaction mappings with sortable table
 - **Shareable URLs**: Basket state encoded as ATC codes in URL (e.g. `?tab=check&drugs=M01AG01-B01AA04-N02BA01`)
