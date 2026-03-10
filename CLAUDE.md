@@ -10,9 +10,14 @@ mkdir -p db && cd db
 curl -L -o amiko_db_full_idx_de.zip "http://pillbox.oddb.org/amiko_db_full_idx_de.zip"
 unzip -o amiko_db_full_idx_de.zip && cd ..
 
-# Build and run
+# Build
 cargo build --release
-cargo run --release
+
+# Build interactions DB
+sdif build
+
+# Check drug interactions
+sdif check Ponstan Marcoumar Aspirin
 ```
 
 ## Architecture
@@ -28,14 +33,18 @@ cargo run --release
 
 ### Interaction detection
 - **Substance-level**: Exact substance name match in interaction text (39,500 records)
-- **ATC class-level**: Maps ATC prefixes to German class keywords for basket checks
+- **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
-  - Catches Ponstan (NSAID) ↔ Marcoumar (anticoagulant) via drug class
+  - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements
 
 ## Database schema (interactions.db)
 - `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text)
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description)
 - `substance_brand_map` (substance, brand_name)
 
+## CLI
+- `sdif build` — (re)build interactions.db from AmiKo source (default when no subcommand)
+- `sdif check <drug1> <drug2> ...` — check basket of brand-name drugs for interactions
+
 ## Dependencies
-- `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`
+- `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`

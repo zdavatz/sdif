@@ -28,8 +28,27 @@ unzip -o db/amiko_db_full_idx_de.zip -d db/
 
 ```bash
 cargo build --release
-cargo run --release
+
+# Build the interactions database
+sdif build
+
+# Check interactions between drugs
+sdif check Ponstan Marcoumar Aspirin
 ```
+
+## CLI Usage
+
+```
+Swiss Drug Interaction Finder
+
+Usage: sdif [COMMAND]
+
+Commands:
+  build  Build the interactions database from the AmiKo source DB
+  check  Check interactions between drugs in a basket
+```
+
+Running `sdif` without a subcommand defaults to `build`.
 
 ## Output
 
@@ -44,20 +63,28 @@ Generates `db/interactions.db` with the following tables:
 - 3,983 drugs parsed
 - 1,230 unique substances
 - 39,500 interaction records
+- ~40 ATC drug class keyword mappings
 
-## Example: Ponstan + Marcoumar
+## Example: Ponstan + Marcoumar + Aspirin
 
 ```
+$ sdif check Ponstan Marcoumar Aspirin
+
 Basket contents:
   Ponstan® [M01AG01] -> mefenaminsäure
   Marcoumar® [B01AA04] -> phenprocoumon
+  Aspirin® S [N02BA01] -> acetylsalicylsäure
 
 INTERACTION [class-level]: Ponstan® <-> Marcoumar® (antikoagul)
   Mefenaminsäure verdrängt Warfarin aus dessen Proteinbindung,
   wodurch der gerinnungshemmende Effekt von Antikoagulantien
   vom Warfarin Typ verstärkt wird.
 
-INTERACTION [class-level]: Marcoumar® <-> Ponstan® (antiphlogistika)
-  Antiphlogistika (Salicylate und einige nichtsteroide
-  Antirheumatika einschliesslich COX-2 Hemmer)...
+INTERACTION [substance match]: Ponstan® <-> Aspirin® S
+  Via substance: acetylsalicylsäure
+  Mefenaminsäure interferiert mit dem Thrombozytenaggregationseffekt
+  von niedrig dosierter Acetylsalicylsäure (ASS)...
+
+INTERACTION [class-level]: Aspirin® S <-> Marcoumar® (antikoagul)
+  Verstärkung der Wirkung von Antikoagulantien/Thrombolytika...
 ```

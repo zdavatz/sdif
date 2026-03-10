@@ -1,8 +1,28 @@
 use aho_corasick::AhoCorasick;
 use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 use regex::Regex;
 use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet};
+
+#[derive(Parser)]
+#[command(name = "sdif", about = "Swiss Drug Interaction Finder")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Build the interactions database from the AmiKo source DB
+    Build,
+    /// Check interactions between drugs in a basket
+    Check {
+        /// Brand names of drugs to check (e.g. Ponstan Marcoumar Aspirin)
+        #[arg(required = true)]
+        drugs: Vec<String>,
+    },
+}
 
 #[derive(Debug, Clone)]
 struct Drug {
@@ -23,32 +43,39 @@ struct Interaction {
 }
 
 fn main() -> Result<()> {
+    let cli = Cli::parse();
+
     let db_path = "db/amiko_db_full_idx_de.db";
     let output_path = "db/interactions.db";
 
-    println!("=== Swiss Drug Interaction Finder (SDIF) ===");
-    println!("Reading source database: {}", db_path);
+    match cli.command {
+        Some(Commands::Check { drugs }) => {
+            let drug_refs: Vec<&str> = drugs.iter().map(|s| s.as_str()).collect();
+            basket_check(output_path, &drug_refs)?;
+        }
+        Some(Commands::Build) | None => {
+            println!("=== Swiss Drug Interaction Finder (SDIF) ===");
+            println!("Reading source database: {}", db_path);
 
-    let source = Connection::open(db_path)
-        .with_context(|| format!("Failed to open source DB: {}", db_path))?;
+            let source = Connection::open(db_path)
+                .with_context(|| format!("Failed to open source DB: {}", db_path))?;
 
-    let drugs = parse_all_drugs(&source)?;
-    println!("Parsed {} drugs", drugs.len());
+            let drugs = parse_all_drugs(&source)?;
+            println!("Parsed {} drugs", drugs.len());
 
-    let substance_to_brands = build_substance_brand_map(&drugs);
-    println!(
-        "Built substance-to-brand map with {} substances",
-        substance_to_brands.len()
-    );
+            let substance_to_brands = build_substance_brand_map(&drugs);
+            println!(
+                "Built substance-to-brand map with {} substances",
+                substance_to_brands.len()
+            );
 
-    let interactions = extract_interactions(&drugs)?;
-    println!("Extracted {} interaction records", interactions.len());
+            let interactions = extract_interactions(&drugs)?;
+            println!("Extracted {} interaction records", interactions.len());
 
-    write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands)?;
-    println!("Wrote interactions database to: {}", output_path);
-
-    println!("\n--- Demo: Ponstan + Marcoumar ---");
-    demo_basket_check(output_path, &["Ponstan", "Marcoumar"])?;
+            write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands)?;
+            println!("Wrote interactions database to: {}", output_path);
+        }
+    }
 
     Ok(())
 }
@@ -380,12 +407,7 @@ fn write_interactions_db(
     Ok(())
 }
 
-/// Check a basket of brand-name drugs for interactions between them.
-/// Uses three strategies:
-/// 1. Exact substance match from pre-computed interactions table
-/// 2. Full-text search of one drug's interaction text for the other's substance names
-/// 3. ATC class-based matching for drug-class interactions (NSAR ↔ Antikoagulantien etc.)
-fn demo_basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
+fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
     let conn = Connection::open(db_path)?;
 
     let mut basket_drugs: Vec<BasketDrug> = Vec::new();
@@ -518,38 +540,94 @@ fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<Class
 
     let class_keywords: &[(&str, &[&str])] = &[
         // B01A = Antithrombotische Mittel / Antikoagulantien
-        ("B01A", &["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist", "vitamin k antagonist"]),
+        ("B01A", &["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist",
+                    "vitamin k antagonist", "blutgerinnungshemm", "thrombozytenaggregationshemm",
+                    "plättchenhemm", "antithrombotisch", "heparin", "thrombin-hemm",
+                    "faktor-xa", "direktes orales antikoagulans", "doak"]),
+        // B01AC = Thrombozytenaggregationshemmer (ASS, Clopidogrel)
+        ("B01AC", &["thrombozytenaggregationshemm", "plättchenhemm", "thrombocytenaggregation"]),
         // M01A = Nichtsteroidale Antiphlogistika (NSAIDs/NSAR)
-        ("M01A", &["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika", "nichtsteroidale antirheumatika"]),
+        ("M01A", &["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika",
+                    "nichtsteroidale antirheumatika", "cox-2", "cox-hemmer", "cyclooxygenase",
+                    "prostaglandinsynthesehemm", "entzündungshemm"]),
         // N02B = Andere Analgetika und Antipyretika (incl. ASS)
-        ("N02B", &["analgetik", "antipyretik", "acetylsalicylsäure"]),
+        ("N02B", &["analgetik", "antipyretik", "acetylsalicylsäure", "paracetamol"]),
+        // N02A = Opioide
+        ("N02A", &["opioid", "opiat", "morphin", "atemdepression", "zns-depression"]),
         // C09A/C09B = ACE-Hemmer
-        ("C09A", &["ace-hemmer", "ace-inhibitor", "ace inhibitor"]),
-        ("C09B", &["ace-hemmer", "ace-inhibitor"]),
-        // C09C/C09D = Angiotensin-II-Antagonisten
-        ("C09C", &["angiotensin", "sartan"]),
-        ("C09D", &["angiotensin", "sartan"]),
+        ("C09A", &["ace-hemmer", "ace-inhibitor", "ace inhibitor", "angiotensin-converting"]),
+        ("C09B", &["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
+        // C09C/C09D = Angiotensin-II-Antagonisten (Sartane)
+        ("C09C", &["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
+        ("C09D", &["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
         // C07 = Beta-Blocker
-        ("C07", &["beta-blocker", "betablocker", "β-blocker"]),
+        ("C07", &["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker",
+                   "beta-adrenozeptor"]),
+        // C08 = Calciumkanalblocker
+        ("C08", &["calciumantagonist", "calciumkanalblocker", "kalziumantagonist",
+                   "kalziumkanalblocker", "calcium-antagonist"]),
         // C03 = Diuretika
-        ("C03", &["diuretik"]),
+        ("C03", &["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
+        // C03C = Schleifendiuretika
+        ("C03C", &["schleifendiuretik", "furosemid", "torasemid"]),
+        // C03A = Thiazide
+        ("C03A", &["thiazid", "hydrochlorothiazid"]),
+        // C01A = Herzglykoside (Digoxin)
+        ("C01A", &["herzglykosid", "digoxin", "digitalis", "digitoxin"]),
+        // C01B = Antiarrhythmika
+        ("C01B", &["antiarrhythmi", "amiodaron"]),
+        // C10A = Statine (Lipidsenker)
+        ("C10A", &["statin", "hmg-coa", "lipidsenk", "cholesterinsenk"]),
         // N06AB = SSRIs
-        ("N06AB", &["ssri", "serotonin-wiederaufnahme", "serotonin reuptake"]),
+        ("N06AB", &["ssri", "serotonin-wiederaufnahme", "serotonin reuptake",
+                     "selektive serotonin", "serotonerg"]),
+        // N06A = Antidepressiva allgemein
+        ("N06A", &["antidepressiv", "trizyklisch", "serotonin", "snri", "maoh",
+                    "mao-hemmer", "monoaminoxidase"]),
         // A10 = Antidiabetika
-        ("A10", &["antidiabetik", "insulin", "blutzucker"]),
+        ("A10", &["antidiabetik", "insulin", "blutzucker", "hypoglykämie", "orale antidiabetika",
+                   "sulfonylharnstoff", "metformin"]),
         // H02 = Corticosteroide
-        ("H02", &["corticosteroid", "kortikosteroid", "glucocorticoid"]),
+        ("H02", &["corticosteroid", "kortikosteroid", "glucocorticoid", "glukokortikoid",
+                   "kortison", "steroid"]),
         // L04 = Immunsuppressiva
-        ("L04", &["immunsuppress", "ciclosporin", "tacrolimus"]),
+        ("L04", &["immunsuppress", "ciclosporin", "tacrolimus", "mycophenolat", "azathioprin",
+                   "sirolimus"]),
         // L01 = Antineoplastische Mittel
-        ("L01", &["antineoplast", "zytostatik", "methotrexat"]),
+        ("L01", &["antineoplast", "zytostatik", "methotrexat", "chemotherap"]),
         // N03 = Antiepileptika
-        ("N03", &["antiepileptik", "antikonvulsiv"]),
+        ("N03", &["antiepileptik", "antikonvulsiv", "krampflösend", "carbamazepin",
+                   "valproinsäure", "phenytoin", "enzymindukt"]),
         // N05A = Antipsychotika
-        ("N05A", &["antipsychoti", "neuroleptik"]),
+        ("N05A", &["antipsychoti", "neuroleptik", "qt-verlänger", "qt-zeit"]),
         // N05B/N05C = Anxiolytika / Sedativa
         ("N05B", &["anxiolytik", "benzodiazepin"]),
-        ("N05C", &["sedativ", "hypnotik", "schlafmittel"]),
+        ("N05C", &["sedativ", "hypnotik", "schlafmittel", "zns-dämfpend", "zns-depression"]),
+        // J01 = Antibiotika
+        ("J01", &["antibiotik", "antibakteriell"]),
+        // J01FA = Makrolide
+        ("J01FA", &["makrolid", "erythromycin", "clarithromycin", "azithromycin"]),
+        // J01MA = Fluorchinolone
+        ("J01MA", &["fluorchinolon", "chinolon", "gyrasehemm"]),
+        // J02A = Antimykotika systemisch
+        ("J02A", &["antimykotik", "azol-antimykotik", "triazol", "itraconazol",
+                    "fluconazol", "voriconazol", "cyp3a4-hemm"]),
+        // J05A = Antivirale
+        ("J05A", &["antiviral", "proteasehemm", "protease-inhibitor", "hiv"]),
+        // A02BC = Protonenpumpeninhibitoren (PPI)
+        ("A02BC", &["protonenpumpeninhibitor", "protonenpumpenhemm", "ppi", "säureblocker"]),
+        // A02B = Ulkusmittel
+        ("A02B", &["antazid", "h2-blocker", "h2-antagonist", "säurehemm"]),
+        // G03A = Hormonale Kontrazeptiva
+        ("G03A", &["kontrazeptiv", "östrogen", "orale kontrazeptiva", "hormonelle verhütung"]),
+        // N07 = Andere Mittel für das Nervensystem
+        ("N07", &["dopaminerg", "cholinerg", "anticholinerg"]),
+        // R03 = Mittel bei obstruktiven Atemwegserkrankungen
+        ("R03", &["bronchodilatat", "theophyllin", "sympathomimetik", "beta-2"]),
+        // M04 = Gichtmittel
+        ("M04", &["urikosurik", "gichtmittel", "harnsäure", "allopurinol"]),
+        // B03 = Antianämika
+        ("B03", &["eisen", "eisenpräparat", "eisensupplementation"]),
     ];
 
     for &(atc_prefix, keywords) in class_keywords {
