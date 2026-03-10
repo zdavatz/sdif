@@ -26,6 +26,8 @@ enum Commands {
         #[arg(required = true)]
         drugs: Vec<String>,
     },
+    /// List all class-level interactions across all drug pairs
+    ClassInteractions,
     /// Search interactions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung, Blutungsrisiko)
     Search {
         /// Search term to find in interaction descriptions
@@ -65,6 +67,9 @@ fn main() -> Result<()> {
         Some(Commands::Check { drugs }) => {
             let drug_refs: Vec<&str> = drugs.iter().map(|s| s.as_str()).collect();
             basket_check(output_path, &drug_refs)?;
+        }
+        Some(Commands::ClassInteractions) => {
+            list_class_interactions(output_path)?;
         }
         Some(Commands::Search { term, limit }) => {
             search_interactions(output_path, &term, limit)?;
@@ -1043,6 +1048,146 @@ fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Resul
         );
         println!("  {}\n", desc);
     }
+
+    Ok(())
+}
+
+fn list_class_interactions(db_path: &str) -> Result<()> {
+    let conn = Connection::open(db_path)?;
+
+    // Load all drugs with ATC codes and interaction texts
+    let mut stmt = conn.prepare(
+        "SELECT brand_name, atc_code, active_substances, interactions_text FROM drugs WHERE length(interactions_text) > 0 AND atc_code IS NOT NULL AND atc_code != ''"
+    )?;
+    struct DrugRow { _brand: String, atc: String, substances: String, text: String }
+    let drugs: Vec<DrugRow> = stmt
+        .query_map([], |row| {
+            Ok(DrugRow {
+                _brand: row.get::<_, String>(0)?,
+                atc: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                substances: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                text: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .filter(|d| !d.atc.is_empty() && !d.text.is_empty())
+        .collect();
+
+    let total = drugs.len();
+    eprintln!("Scanning {} drugs for class-level interactions...", total);
+
+    // The class keywords used in find_class_interactions
+    let class_keywords: Vec<(&str, Vec<&str>)> = vec![
+        ("B01A", vec!["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist",
+                    "vitamin k antagonist", "blutgerinnungshemm", "thrombozytenaggregationshemm",
+                    "plättchenhemm", "antithrombotisch", "heparin", "thrombin-hemm",
+                    "faktor-xa", "direktes orales antikoagulans", "doak"]),
+        ("B01AC", vec!["thrombozytenaggregationshemm", "plättchenhemm", "thrombocytenaggregation"]),
+        ("M01A", vec!["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika",
+                    "nichtsteroidale antirheumatika", "cox-2", "cox-hemmer", "cyclooxygenase",
+                    "prostaglandinsynthesehemm", "entzündungshemm"]),
+        ("N02B", vec!["analgetik", "antipyretik", "acetylsalicylsäure", "paracetamol"]),
+        ("N02A", vec!["opioid", "opiat", "morphin", "atemdepression", "zns-depression"]),
+        ("C09A", vec!["ace-hemmer", "ace-inhibitor", "ace inhibitor", "angiotensin-converting"]),
+        ("C09B", vec!["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
+        ("C09C", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
+        ("C09D", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
+        ("C07", vec!["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker", "beta-adrenozeptor"]),
+        ("C08", vec!["calciumantagonist", "calciumkanalblocker", "kalziumantagonist", "kalziumkanalblocker", "calcium-antagonist"]),
+        ("C03", vec!["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
+        ("C03C", vec!["schleifendiuretik", "furosemid", "torasemid"]),
+        ("C03A", vec!["thiazid", "hydrochlorothiazid"]),
+        ("C01A", vec!["herzglykosid", "digoxin", "digitalis", "digitoxin"]),
+        ("C01B", vec!["antiarrhythmi", "amiodaron"]),
+        ("C10A", vec!["statin", "hmg-coa", "lipidsenk", "cholesterinsenk"]),
+        ("N06AB", vec!["ssri", "serotonin-wiederaufnahme", "serotonin reuptake", "selektive serotonin", "serotonerg"]),
+        ("N06A", vec!["antidepressiv", "trizyklisch", "serotonin", "snri", "maoh", "mao-hemmer", "monoaminoxidase"]),
+        ("A10", vec!["antidiabetik", "insulin", "blutzucker", "hypoglykämie", "orale antidiabetika", "sulfonylharnstoff", "metformin"]),
+        ("H02", vec!["corticosteroid", "kortikosteroid", "glucocorticoid", "glukokortikoid", "kortison", "steroid"]),
+        ("L04", vec!["immunsuppress", "ciclosporin", "tacrolimus", "mycophenolat", "azathioprin", "sirolimus"]),
+        ("L01", vec!["antineoplast", "zytostatik", "methotrexat", "chemotherap"]),
+        ("N03", vec!["antiepileptik", "antikonvulsiv", "krampflösend", "carbamazepin", "valproinsäure", "phenytoin", "enzymindukt"]),
+        ("N05A", vec!["antipsychoti", "neuroleptik", "qt-verlänger", "qt-zeit"]),
+        ("N05B", vec!["anxiolytik", "benzodiazepin"]),
+        ("N05C", vec!["sedativ", "hypnotik", "schlafmittel", "zns-dämfpend", "zns-depression"]),
+        ("J01", vec!["antibiotik", "antibakteriell"]),
+        ("J01FA", vec!["makrolid", "erythromycin", "clarithromycin", "azithromycin"]),
+        ("J01MA", vec!["fluorchinolon", "chinolon", "gyrasehemm"]),
+        ("J02A", vec!["antimykotik", "azol-antimykotik", "triazol", "itraconazol", "fluconazol", "voriconazol", "cyp3a4-hemm"]),
+        ("J05A", vec!["antiviral", "proteasehemm", "protease-inhibitor", "hiv"]),
+        ("A02BC", vec!["protonenpumpeninhibitor", "protonenpumpenhemm", "ppi", "säureblocker"]),
+        ("A02B", vec!["antazid", "h2-blocker", "h2-antagonist", "säurehemm"]),
+        ("G03A", vec!["kontrazeptiv", "östrogen", "orale kontrazeptiva", "hormonelle verhütung"]),
+        ("N07", vec!["dopaminerg", "cholinerg", "anticholinerg"]),
+        ("R03", vec!["bronchodilatat", "theophyllin", "sympathomimetik", "beta-2"]),
+        ("M04", vec!["urikosurik", "gichtmittel", "harnsäure", "allopurinol"]),
+        ("B03", vec!["eisen", "eisenpräparat", "eisensupplementation"]),
+        ("L02BA", vec!["toremifen", "tamoxifen", "antiöstrogen", "östrogen-rezeptor", "serm", "selektive östrogenrezeptor"]),
+        ("L02B", vec!["hormonantagonist", "antihormon", "antiandrogen", "antiöstrogen"]),
+        ("V03AB", vec!["sugammadex", "antidot", "antagonisierung", "neuromuskuläre blockade", "verdrängung"]),
+        ("M03A", vec!["muskelrelax", "neuromuskulär", "rocuronium", "vecuronium", "succinylcholin", "curare"]),
+    ];
+
+    // For each ATC class, count: how many drugs belong to it, how many OTHER drugs mention its keywords
+    // Then show unique substance-pair level class interactions
+
+    // Group drugs by ATC prefix
+    let mut drugs_in_class: HashMap<String, usize> = HashMap::new();
+    for (prefix, _) in &class_keywords {
+        let count = drugs.iter().filter(|d| d.atc.starts_with(prefix)).count();
+        drugs_in_class.insert(prefix.to_string(), count);
+    }
+
+    // For each class, find drugs that mention its keywords (but don't belong to the class themselves)
+    let mut total_interactions = 0u64;
+    let mut class_results: Vec<(String, usize, usize, u64, String)> = Vec::new(); // (prefix, drugs_in_class, drugs_mentioning, pair_count, best_keyword)
+
+    for (prefix, keywords) in &class_keywords {
+        let n_in_class = *drugs_in_class.get(*prefix).unwrap_or(&0);
+        if n_in_class == 0 {
+            continue;
+        }
+
+        // Unique substances mentioning keywords (that are NOT in this class)
+        let mut mentioning_substances: HashSet<String> = HashSet::new();
+        let mut best_keyword = String::new();
+        let mut best_count = 0usize;
+
+        for kw in keywords {
+            let mut count = 0usize;
+            for drug in &drugs {
+                if drug.atc.starts_with(prefix) {
+                    continue; // Skip drugs in the same class
+                }
+                let text_lower = drug.text.to_lowercase();
+                if text_lower.contains(kw) {
+                    mentioning_substances.insert(drug.substances.clone());
+                    count += 1;
+                }
+            }
+            if count > best_count {
+                best_count = count;
+                best_keyword = kw.to_string();
+            }
+        }
+
+        let n_mentioning = mentioning_substances.len();
+        // Each mentioning substance group × each drug in class = potential class-level interaction pairs
+        let pair_count = (n_mentioning as u64) * (n_in_class as u64);
+        total_interactions += pair_count;
+        class_results.push((prefix.to_string(), n_in_class, n_mentioning, pair_count, best_keyword));
+    }
+
+    // Sort by pair count descending
+    class_results.sort_by(|a, b| b.3.cmp(&a.3));
+
+    println!("{:<10} {:>12} {:>18} {:>18}   {}", "ATC Class", "Drugs in Cl.", "Drugs Mentioning", "Potential Pairs", "Top Keyword");
+    println!("{}", "-".repeat(90));
+    for (prefix, n_in, n_mention, pairs, keyword) in &class_results {
+        println!("{:<10} {:>12} {:>18} {:>18}   {}", prefix, n_in, n_mention, pairs, keyword);
+    }
+    println!("{}", "-".repeat(90));
+    println!("Total potential class-level interaction pairs: {}", total_interactions);
 
     Ok(())
 }

@@ -63,6 +63,7 @@ sdif search "QT-Verlängerung" -l 5
 - `sdif build [--download]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV first
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, shows all by default
+- `sdif class-interactions` — list all class-level interactions across all drug pairs, showing per-ATC-class stats (drugs in class, drugs mentioning class keywords, potential pairs)
 
 ## Stats image
 - `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_HHhMM-dd.mm.yyyy.png`

@@ -48,9 +48,10 @@ Swiss Drug Interaction Finder
 Usage: sdif [COMMAND]
 
 Commands:
-  build   Build the interactions database (--download to fetch source DB)
-  check   Check interactions between drugs in a basket
-  search  Search interactions by clinical term
+  build              Build the interactions database (--download to fetch source DB)
+  check              Check interactions between drugs in a basket
+  search             Search interactions by clinical term
+  class-interactions List all class-level interactions across all drug pairs
 ```
 
 Running `sdif` without a subcommand defaults to `build`.
@@ -96,6 +97,26 @@ INTERACTION [class-level]: Aspirin® S <-> Marcoumar® (antikoagul) | Severity: 
   Verstärkung der Wirkung von Antikoagulantien/Thrombolytika...
 
 Severity levels: ### Kontraindiziert, ## Schwerwiegend, # Vorsicht, - Keine Einstufung
+```
+
+## Example: Class-level interaction overview
+
+```
+$ sdif class-interactions
+
+Scanning 4507 drugs for class-level interactions...
+ATC Class  Drugs in Cl.   Drugs Mentioning    Potential Pairs   Top Keyword
+------------------------------------------------------------------------------------------
+L01                 328                202              66256   methotrexat
+L04                 153                355              54315   ciclosporin
+J01                 170                258              43860   antibiotik
+B01A                 78                510              39780   warfarin
+N06A                 98                375              36750   antidepressiv
+N03                  65                540              35100   phenytoin
+M01A                124                213              26412   nsar
+...
+------------------------------------------------------------------------------------------
+Total potential class-level interaction pairs: 597280
 ```
 
 ## Example: Search by clinical term
