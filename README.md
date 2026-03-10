@@ -7,7 +7,7 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 ## How it works
 
 1. Downloads and reads the AmiKo full-text database (`amiko_db_full_idx_de.db`)
-2. Extracts active substance names from ATC codes (German names)
+2. Extracts active substance names from ATC codes (German names), with fallback to the Zusammensetzung/Wirkstoffe HTML section when the ATC column lacks substance names
 3. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
 4. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
 5. Scores severity of each interaction by scanning for German clinical keywords
@@ -65,11 +65,11 @@ Generates `db/interactions.db` with the following tables:
 
 ### Stats (as of March 2026)
 
-- 3,983 drugs parsed
-- 1,230 unique substances
-- 40,016 interaction records (13,114 unique substance pairs)
+- 4,476 drugs parsed (493 recovered via HTML Wirkstoffe fallback)
+- 2,339 unique substances
+- 57,301 interaction records (21,695 unique substance pairs)
 - ~40 ATC drug class keyword mappings
-- Severity distribution: 2,065 Kontraindiziert / 4,731 Schwerwiegend / 12,079 Vorsicht / 21,141 Keine Einstufung
+- Severity distribution: 2,854 Kontraindiziert / 6,241 Schwerwiegend / 17,342 Vorsicht / 30,864 Keine Einstufung
 
 ## Example: Ponstan + Marcoumar + Aspirin
 

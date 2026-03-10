@@ -27,10 +27,10 @@ ax1.set_facecolor('#ffffff')
 ax1.axis('off')
 
 metrics = [
-    ('3,983', 'Drugs parsed'),
-    ('1,230', 'Unique substances'),
-    ('40,016', 'Interaction records'),
-    ('13,114', 'Unique substance pairs'),
+    ('4,476', 'Drugs parsed'),
+    ('2,339', 'Unique substances'),
+    ('57,301', 'Interaction records'),
+    ('21,695', 'Unique substance pairs'),
     ('~40', 'ATC class mappings'),
 ]
 
@@ -49,7 +49,7 @@ ax2 = fig.add_subplot(gs[0, 1])
 ax2.set_facecolor('#ffffff')
 
 severity_labels = ['Kontraindiziert', 'Schwerwiegend', 'Vorsicht', 'Keine Einstufung']
-severity_values = [2065, 4731, 12079, 21141]
+severity_values = [2854, 6241, 17342, 30864]
 severity_colors = ['#e53935', '#ff9800', '#fdd835', '#b0bec5']
 
 wedges, texts, autotexts = ax2.pie(
@@ -63,7 +63,7 @@ for t in autotexts:
     t.set_color('#ffffff')
 
 # Center text
-ax2.text(0, 0, '47%\nclassified', ha='center', va='center',
+ax2.text(0, 0, '46%\nclassified', ha='center', va='center',
          fontsize=13, fontweight='bold', color=accent)
 
 ax2.set_title('Severity Distribution', fontsize=14, fontweight='bold',

@@ -28,13 +28,13 @@ sdif search "QT-Verlängerung" -l 5
 - **Output**: `db/interactions.db` — pre-computed interactions DB
 
 ### Key data flow
-1. Parse ATC column (`"M01AG01;Mefenaminsäure"`) for German substance names
+1. Parse ATC column (`"M01AG01;Mefenaminsäure"`) for German substance names; fallback to Zusammensetzung/Wirkstoffe HTML section when ATC column has code but no substance name
 2. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung"
 3. Aho-Corasick multi-pattern match all known substances against interaction texts
 4. Store substance-level interactions with best-severity context snippets
 
 ### Interaction detection
-- **Substance-level**: Exact substance name match in interaction text (40,016 records, 13,114 unique substance pairs)
+- **Substance-level**: Exact substance name match in interaction text (57,301 records, 21,695 unique substance pairs)
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
   - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements, SERMs (L02BA), muscle relaxants (M03A), antidotes (V03AB)

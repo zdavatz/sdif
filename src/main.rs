@@ -260,6 +260,107 @@ fn extract_interaction_section(content: &str) -> String {
     }
 }
 
+/// Extract active substance names from the Zusammensetzung/Wirkstoffe section of the HTML content.
+/// Falls back to this when the ATC column has a code but no substance name.
+fn extract_substances_from_html(content: &str) -> Vec<String> {
+    // Match Wirkstoff / Wirkstoffe / Wirkstoff(e) header
+    let wirkstoff_re = Regex::new(r"Wirkstoff(?:e|\(e\))?</p>").unwrap();
+    let p_tag_re = Regex::new(r#"<p[^>]*class="spacing1"[^>]*>([^<]+)</p>"#).unwrap();
+    let html_entity_re = Regex::new(r"&#\d+;").unwrap();
+    let und_re = Regex::new(r"\s+und\s+|\s+et\s+").unwrap();
+
+    let wirkstoff_pos = match wirkstoff_re.find(content) {
+        Some(m) => m.end(),
+        None => return Vec::new(),
+    };
+
+    // Collect <p> tag contents until we hit Hilfsstoff
+    let remainder = &content[wirkstoff_pos..];
+    let mut substance_text = String::new();
+    for cap in p_tag_re.captures_iter(remainder) {
+        let text = cap[1].trim().to_string();
+        let text_lower = text.to_lowercase();
+        if text_lower.contains("hilfsstoff") {
+            break;
+        }
+        // Skip italic sub-headers (e.g. "Tablettenkern:", "Filmtabletten:")
+        if text.ends_with(':') {
+            break;
+        }
+        if !substance_text.is_empty() {
+            substance_text.push_str(", ");
+        }
+        substance_text.push_str(&text);
+    }
+
+    if substance_text.is_empty() {
+        return Vec::new();
+    }
+
+    // Replace HTML entities (&#32; = space, etc.)
+    let substance_text = html_entity_re.replace_all(&substance_text, " ").to_string();
+
+    let mut substances = Vec::new();
+    // Split by comma for multi-substance entries
+    for part in substance_text.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        // Split by "und" / "et" for entries like "Nivolumab und Relatlimab"
+        for name_raw in und_re.split(part) {
+            let name = extract_substance_name(name_raw.trim());
+            if name.len() > 2 {
+                substances.push(name);
+            }
+        }
+    }
+
+    substances
+}
+
+/// Clean up a single substance name from Wirkstoffe text.
+/// Handles patterns like:
+///   "Trametinib als Trametinibdimethylsulfoxid" → "Trametinib"
+///   "Desvenlafaxinum ut desvenlafaxini benzoas" → "Desvenlafaxin"
+///   "Fedratinib (als Dihydrochlorid-Monohydrat)." → "Fedratinib"
+///   "Bimekizumab, aus gentechnisch..." → "Bimekizumab"
+fn extract_substance_name(text: &str) -> String {
+    let mut name = text.to_string();
+
+    // Remove trailing period
+    name = name.trim_end_matches('.').trim().to_string();
+
+    // Take text before "als" or "ut" (salt form indicator)
+    for separator in &[" als ", " ut "] {
+        if let Some(pos) = name.to_lowercase().find(separator) {
+            name = name[..pos].trim().to_string();
+        }
+    }
+
+    // Remove parenthesized content
+    if let Some(pos) = name.find('(') {
+        name = name[..pos].trim().to_string();
+    }
+
+    // Strip trailing period again (in case it was before parentheses)
+    name = name.trim_end_matches('.').trim().to_string();
+
+    // Strip Latin -um suffix to get INN name (e.g. Desvenlafaxinum → Desvenlafaxin)
+    // But only for typical Latin pharmaceutical suffixes, not words like "Aluminium"
+    if name.ends_with("um") && name.len() > 6 {
+        let stem = &name[..name.len() - 2];
+        // Latin pharma names typically end in -inum, -abum, -ibum, etc.
+        // Check it's not a common word ending in -um (Aluminium, Calcium, etc.)
+        let lower = name.to_lowercase();
+        if !lower.ends_with("ium") && !lower.ends_with("eum") {
+            name = stem.to_string();
+        }
+    }
+
+    name
+}
+
 fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
     let mut stmt = conn.prepare(
         "SELECT _id, title, atc, atc_class, content FROM amikodb WHERE content IS NOT NULL AND content != ''",
@@ -283,6 +384,7 @@ fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
     let und_re = Regex::new(r"\s+und\s+|\s+et\s+").unwrap();
 
     let mut drugs = Vec::new();
+    let mut html_fallback_count = 0u32;
     for (idx, (id, title, atc, atc_class, content)) in rows.iter().enumerate() {
         if idx % 500 == 0 {
             eprint!("\r  Parsing drug {}/{}...", idx, rows.len());
@@ -304,6 +406,14 @@ fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
             }
         }
 
+        // Fallback: extract from Zusammensetzung/Wirkstoffe HTML section
+        if active_substances.is_empty() && !atc_code.is_empty() {
+            active_substances = extract_substances_from_html(content);
+            if !active_substances.is_empty() {
+                html_fallback_count += 1;
+            }
+        }
+
         let interactions_text = extract_interaction_section(content);
 
         if active_substances.is_empty() {
@@ -320,6 +430,9 @@ fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
         });
     }
     eprintln!("\r  Parsing done.                    ");
+    if html_fallback_count > 0 {
+        println!("  Extracted substances from HTML for {} drugs (ATC column had no substance name)", html_fallback_count);
+    }
 
     Ok(drugs)
 }
