@@ -8,14 +8,14 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
 
-fig = plt.figure(figsize=(14, 8), facecolor='#1a1a2e')
+fig = plt.figure(figsize=(14, 8), facecolor='#ffffff')
 gs = GridSpec(2, 2, figure=fig, hspace=0.35, wspace=0.3,
              left=0.12, right=0.95, top=0.88, bottom=0.08)
 
 today = date.today().strftime('%d.%m.%Y')
-title_color = '#e0e0e0'
-text_color = '#c0c0c0'
-accent = '#4fc3f7'
+title_color = '#222222'
+text_color = '#444444'
+accent = '#0277bd'
 
 fig.suptitle('SDIF - Swiss Drug Interaction Finder',
              fontsize=22, fontweight='bold', color=accent, y=0.96)
@@ -23,7 +23,7 @@ fig.text(0.95, 0.02, today, ha='right', fontsize=10, color=text_color)
 
 # --- Top left: Key metrics ---
 ax1 = fig.add_subplot(gs[0, 0])
-ax1.set_facecolor('#1a1a2e')
+ax1.set_facecolor('#ffffff')
 ax1.axis('off')
 
 metrics = [
@@ -46,21 +46,21 @@ ax1.text(0.05, 1.05, 'Key Metrics', fontsize=14, fontweight='bold',
 
 # --- Top right: Severity donut chart ---
 ax2 = fig.add_subplot(gs[0, 1])
-ax2.set_facecolor('#1a1a2e')
+ax2.set_facecolor('#ffffff')
 
 severity_labels = ['Kontraindiziert', 'Schwerwiegend', 'Vorsicht', 'Keine Einstufung']
 severity_values = [2065, 4731, 12079, 21141]
-severity_colors = ['#e53935', '#ff9800', '#fdd835', '#78909c']
+severity_colors = ['#e53935', '#ff9800', '#fdd835', '#b0bec5']
 
 wedges, texts, autotexts = ax2.pie(
     severity_values, labels=None, autopct='%1.0f%%',
     colors=severity_colors, startangle=90,
-    pctdistance=0.78, wedgeprops=dict(width=0.45, edgecolor='#1a1a2e', linewidth=2)
+    pctdistance=0.78, wedgeprops=dict(width=0.45, edgecolor='#ffffff', linewidth=2)
 )
 for t in autotexts:
     t.set_fontsize(11)
     t.set_fontweight('bold')
-    t.set_color('#1a1a2e')
+    t.set_color('#ffffff')
 
 # Center text
 ax2.text(0, 0, '47%\nclassified', ha='center', va='center',
@@ -70,7 +70,7 @@ ax2.set_title('Severity Distribution', fontsize=14, fontweight='bold',
               color=title_color, pad=12)
 
 legend = ax2.legend(
-    [mpatches.Patch(facecolor=c, edgecolor='#1a1a2e') for c in severity_colors],
+    [mpatches.Patch(facecolor=c, edgecolor='#ffffff') for c in severity_colors],
     [f'{l}  ({v:,})' for l, v in zip(severity_labels, severity_values)],
     loc='lower center', bbox_to_anchor=(0.5, -0.15),
     ncol=2, fontsize=10, frameon=False,
@@ -80,14 +80,14 @@ for t in legend.get_texts():
 
 # --- Bottom: Severity bar chart ---
 ax3 = fig.add_subplot(gs[1, :])
-ax3.set_facecolor('#1a1a2e')
+ax3.set_facecolor('#ffffff')
 
 severity_markers = ['###', '##', '#', '-']
 bar_positions = range(len(severity_labels))
 
 bar_positions = [i * 1.4 for i in range(len(severity_labels))]
 bars = ax3.barh(bar_positions, severity_values[::-1],
-                color=severity_colors[::-1], edgecolor='#1a1a2e', height=0.7)
+                color=severity_colors[::-1], edgecolor='#ffffff', height=0.7)
 
 max_val = max(severity_values)
 for i, (bar, val) in enumerate(zip(bars, severity_values[::-1])):
@@ -102,7 +102,7 @@ for i, (bar, val) in enumerate(zip(bars, severity_values[::-1])):
     if bar.get_width() > max_val * 0.08:
         ax3.text(bar.get_width() * 0.5, y_center, f'{val:,}',
                  va='center', ha='center',
-                 fontsize=11, fontweight='bold', color='#1a1a2e')
+                 fontsize=11, fontweight='bold', color='#ffffff')
     else:
         ax3.text(bar.get_width() + 300, y_center, f'{val:,}',
                  va='center', fontsize=11, fontweight='bold', color=text_color)
@@ -113,7 +113,7 @@ ax3.set_title('Interaction Records by Severity Level', fontsize=14,
 ax3.set_yticks([])
 ax3.spines['top'].set_visible(False)
 ax3.spines['right'].set_visible(False)
-ax3.spines['bottom'].set_color('#444')
+ax3.spines['bottom'].set_color('#ccc')
 ax3.spines['left'].set_visible(False)
 ax3.xaxis.set_visible(False)
 
