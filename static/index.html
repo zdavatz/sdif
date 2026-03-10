@@ -333,24 +333,18 @@ function renderInteraction(ix) {
 // Clinical search
 const searchInput = document.getElementById('search-input');
 const searchAc = document.getElementById('search-autocomplete');
-let searchTimer = null;
 let suggestTimer = null;
 let searchAcIdx = -1;
 
 searchInput.addEventListener('input', () => {
-  clearTimeout(searchTimer);
   clearTimeout(suggestTimer);
   const term = searchInput.value.trim();
   updateUrl();
   if (term.length < 2) {
     searchAc.style.display = 'none';
-    document.getElementById('search-results').innerHTML = '';
     return;
   }
-  suggestTimer = setTimeout(() => suggestTerms(term), 150);
-  if (term.length >= 3) {
-    searchTimer = setTimeout(() => searchInteractions(term), 500);
-  }
+  suggestTimer = setTimeout(() => suggestTerms(term), 200);
 });
 
 searchInput.addEventListener('keydown', (e) => {
