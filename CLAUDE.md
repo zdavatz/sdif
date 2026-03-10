@@ -13,6 +13,9 @@ sdif build --download
 # Rebuild without downloading
 sdif build
 
+# Build and publish to pillbox.oddb.org
+sdif build --publish
+
 # Check drug interactions (brand names or substance names)
 sdif check Ponstan Marcoumar Aspirin
 sdif check Phenprocoumon Navelbine
@@ -61,7 +64,7 @@ sdif search "QT-Verlängerung" -l 5
 - `substance_brand_map` (substance, brand_name)
 
 ## CLI
-- `sdif build [--download]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV first
+- `sdif build [--download] [--publish]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV first; `--publish` deploys interactions.db to pillbox.oddb.org via scp
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, shows all by default
 - `sdif class-interactions` — list all class-level interactions across all drug pairs, showing per-ATC-class stats (drugs in class, drugs mentioning class keywords, potential pairs)

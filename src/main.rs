@@ -21,6 +21,9 @@ enum Commands {
         /// Download the AmiKo source database before building
         #[arg(long)]
         download: bool,
+        /// Publish interactions.db to pillbox.oddb.org after building
+        #[arg(long)]
+        publish: bool,
     },
     /// Check interactions between drugs in a basket
     Check {
@@ -86,12 +89,15 @@ fn main() -> Result<()> {
         Some(Commands::Search { term, limit }) => {
             search_interactions(output_path, &term, limit)?;
         }
-        Some(Commands::Build { download }) => {
+        Some(Commands::Build { download, publish }) => {
             if download {
                 download_source_db(db_path)?;
                 download_atc_csv()?;
             }
             run_build(db_path, output_path)?;
+            if publish {
+                publish_db(output_path)?;
+            }
         }
         None => {
             run_build(db_path, output_path)?;
@@ -147,6 +153,20 @@ fn download_atc_csv() -> Result<()> {
     }
 
     println!("ATC CSV ready at {}", csv_path);
+    Ok(())
+}
+
+fn publish_db(output_path: &str) -> Result<()> {
+    let dest = "zdavatz@65.109.137.20:/var/www/pillbox.oddb.org/";
+    println!("Publishing {} to {}...", output_path, dest);
+    let status = std::process::Command::new("scp")
+        .args(&[output_path, dest])
+        .status()
+        .with_context(|| "Failed to run scp")?;
+    if !status.success() {
+        anyhow::bail!("Publish failed (scp returned non-zero)");
+    }
+    println!("Published successfully.");
     Ok(())
 }
 

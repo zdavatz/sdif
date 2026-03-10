@@ -31,6 +31,9 @@ sdif build --download
 # Rebuild without downloading (subsequent runs)
 sdif build
 
+# Build and publish interactions.db to pillbox.oddb.org
+sdif build --publish
+
 # Check interactions between drugs (brand names or substance names)
 sdif check Ponstan Marcoumar Aspirin
 sdif check Phenprocoumon Navelbine
@@ -48,7 +51,7 @@ Swiss Drug Interaction Finder
 Usage: sdif [COMMAND]
 
 Commands:
-  build              Build the interactions database (--download to fetch source DB)
+  build              Build the interactions database (--download to fetch source DB, --publish to deploy)
   check              Check interactions between drugs in a basket
   search             Search interactions by clinical term
   class-interactions List all class-level interactions across all drug pairs
