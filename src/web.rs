@@ -45,7 +45,8 @@ async fn index_handler() -> Html<&'static str> {
 
 #[derive(Deserialize)]
 struct DrugSearchQuery {
-    q: String,
+    q: Option<String>,
+    atc: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -59,12 +60,44 @@ async fn search_drugs(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DrugSearchQuery>,
 ) -> impl IntoResponse {
-    let q = query.q.trim().to_string();
+    let db_path = state.db_path.clone();
+
+    // Exact ATC code lookup
+    if let Some(atc) = &query.atc {
+        let atc = atc.trim().to_string();
+        if atc.is_empty() {
+            return Json(Vec::<DrugResult>::new()).into_response();
+        }
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<DrugResult>> {
+            let conn = Connection::open(&db_path)?;
+            let mut stmt = conn.prepare(
+                "SELECT brand_name, atc_code, active_substances FROM drugs \
+                 WHERE atc_code = ?1 ORDER BY length(interactions_text) DESC LIMIT 1",
+            )?;
+            let rows = stmt
+                .query_map(params![atc], |row| {
+                    Ok(DrugResult {
+                        brand_name: row.get(0)?,
+                        atc_code: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        substances: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(rows)
+        })
+        .await;
+        return match result {
+            Ok(Ok(drugs)) => Json(drugs).into_response(),
+            _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
+    }
+
+    let q = query.q.as_deref().unwrap_or("").trim().to_string();
     if q.len() < 2 {
         return Json(Vec::<DrugResult>::new()).into_response();
     }
 
-    let db_path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Vec<DrugResult>> {
         let conn = Connection::open(&db_path)?;
         let pattern = format!("%{}%", q);
@@ -116,13 +149,16 @@ struct BasketDrugInfo {
 #[derive(Serialize)]
 struct InteractionResult {
     drug_a: String,
+    drug_a_atc: String,
     drug_b: String,
+    drug_b_atc: String,
     interaction_type: String, // "substance", "class-level", "CYP"
     severity_score: u8,
     severity_label: String,
     severity_indicator: String,
     keyword: String,
     description: String,
+    explanation: String,
 }
 
 struct BasketDrug {
@@ -234,13 +270,16 @@ async fn check_interactions(
                     for (desc, sev_score, sev_label) in rows {
                         interactions.push(InteractionResult {
                             drug_a: a.brand.clone(),
+                            drug_a_atc: a.atc_code.clone(),
                             drug_b: b.brand.clone(),
+                            drug_b_atc: b.atc_code.clone(),
                             interaction_type: "substance".to_string(),
                             severity_score: sev_score,
                             severity_label: sev_label,
                             severity_indicator: severity_indicator(sev_score).to_string(),
                             keyword: subst.clone(),
                             description: desc,
+                            explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, a.brand),
                         });
                     }
                 }
@@ -259,13 +298,16 @@ async fn check_interactions(
                     for (desc, sev_score, sev_label) in rows {
                         interactions.push(InteractionResult {
                             drug_a: b.brand.clone(),
+                            drug_a_atc: b.atc_code.clone(),
                             drug_b: a.brand.clone(),
+                            drug_b_atc: a.atc_code.clone(),
                             interaction_type: "substance".to_string(),
                             severity_score: sev_score,
                             severity_label: sev_label,
                             severity_indicator: severity_indicator(sev_score).to_string(),
                             keyword: subst.clone(),
                             description: desc,
+                            explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, b.brand),
                         });
                     }
                 }
@@ -273,28 +315,38 @@ async fn check_interactions(
                 // Strategy 2: Class-level
                 for hit in find_class_interactions(&a.interactions_text, &b.atc_code) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
+                    let class_desc = atc_class_description_for_code(&b.atc_code);
                     interactions.push(InteractionResult {
                         drug_a: a.brand.clone(),
+                        drug_a_atc: a.atc_code.clone(),
                         drug_b: b.brand.clone(),
+                        drug_b_atc: b.atc_code.clone(),
                         interaction_type: "class-level".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
                         severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: hit.class_keyword,
+                        keyword: hit.class_keyword.clone(),
                         description: hit.context,
+                        explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
+                            b.brand, b.atc_code, class_desc, hit.class_keyword, a.brand),
                     });
                 }
                 for hit in find_class_interactions(&b.interactions_text, &a.atc_code) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
+                    let class_desc = atc_class_description_for_code(&a.atc_code);
                     interactions.push(InteractionResult {
                         drug_a: b.brand.clone(),
+                        drug_a_atc: b.atc_code.clone(),
                         drug_b: a.brand.clone(),
+                        drug_b_atc: a.atc_code.clone(),
                         interaction_type: "class-level".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
                         severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: hit.class_keyword,
+                        keyword: hit.class_keyword.clone(),
                         description: hit.context,
+                        explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
+                            a.brand, a.atc_code, class_desc, hit.class_keyword, b.brand),
                     });
                 }
 
@@ -303,26 +355,34 @@ async fn check_interactions(
                     let (sev_score, sev_label) = score_severity(&hit.context);
                     interactions.push(InteractionResult {
                         drug_a: a.brand.clone(),
+                        drug_a_atc: a.atc_code.clone(),
                         drug_b: b.brand.clone(),
+                        drug_b_atc: b.atc_code.clone(),
                         interaction_type: "CYP".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
                         severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: hit.class_keyword,
+                        keyword: hit.class_keyword.clone(),
                         description: hit.context,
+                        explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
+                            b.brand, hit.class_keyword, a.brand),
                     });
                 }
                 for hit in find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
                     interactions.push(InteractionResult {
                         drug_a: b.brand.clone(),
+                        drug_a_atc: b.atc_code.clone(),
                         drug_b: a.brand.clone(),
+                        drug_b_atc: a.atc_code.clone(),
                         interaction_type: "CYP".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
                         severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: hit.class_keyword,
+                        keyword: hit.class_keyword.clone(),
                         description: hit.context,
+                        explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
+                            a.brand, hit.class_keyword, b.brand),
                     });
                 }
             }
@@ -456,6 +516,23 @@ struct ClassInteractionRow {
 struct ClassInteractionsResponse {
     total_pairs: u64,
     classes: Vec<ClassInteractionRow>,
+}
+
+fn atc_class_description_for_code(atc_code: &str) -> &'static str {
+    // Try most specific prefix first (longest match)
+    let prefixes = [
+        "B01AC", "B01A", "M01A", "N02B", "N02A", "C09A", "C09B", "C09C", "C09D",
+        "C07", "C08", "C03C", "C03A", "C03", "C01A", "C01B", "C10A", "N06AB", "N06A",
+        "A10", "H02", "L04", "L01", "N03", "N05A", "N05B", "N05C",
+        "J01FA", "J01MA", "J01", "J02A", "J05A", "A02BC", "A02B", "G03A", "N07", "R03",
+        "M04", "B03", "L02BA", "L02B", "V03AB", "M03A",
+    ];
+    for prefix in &prefixes {
+        if atc_code.starts_with(prefix) {
+            return atc_class_description(prefix);
+        }
+    }
+    ""
 }
 
 fn atc_class_description(prefix: &str) -> &'static str {
