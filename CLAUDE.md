@@ -16,8 +16,13 @@ cargo build --release
 # Build interactions DB
 sdif build
 
-# Check drug interactions
+# Check drug interactions (brand names or substance names)
 sdif check Ponstan Marcoumar Aspirin
+sdif check Phenprocoumon Navelbine
+
+# Search by clinical term
+sdif search Prothrombinzeit
+sdif search "QT-Verlängerung" -l 5
 ```
 
 ## Architecture
@@ -27,15 +32,15 @@ sdif check Ponstan Marcoumar Aspirin
 
 ### Key data flow
 1. Parse ATC column (`"M01AG01;Mefenaminsäure"`) for German substance names
-2. Extract "Interaktionen" HTML section from each drug's `content` column
+2. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung"
 3. Aho-Corasick multi-pattern match all known substances against interaction texts
 4. Store substance-level interactions with context snippets
 
 ### Interaction detection
-- **Substance-level**: Exact substance name match in interaction text (39,500 records)
+- **Substance-level**: Exact substance name match in interaction text (40,016 records)
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
-  - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements
+  - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements, SERMs (L02BA), muscle relaxants (M03A), antidotes (V03AB)
 
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
@@ -51,7 +56,8 @@ sdif check Ponstan Marcoumar Aspirin
 
 ## CLI
 - `sdif build` — (re)build interactions.db from AmiKo source (default when no subcommand)
-- `sdif check <drug1> <drug2> ...` — check basket of brand-name drugs for interactions
+- `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
+- `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, default limit 20
 
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`

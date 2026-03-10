@@ -18,9 +18,18 @@ enum Commands {
     Build,
     /// Check interactions between drugs in a basket
     Check {
-        /// Brand names of drugs to check (e.g. Ponstan Marcoumar Aspirin)
+        /// Brand names or substance names of drugs to check (e.g. Ponstan Marcoumar Aspirin)
         #[arg(required = true)]
         drugs: Vec<String>,
+    },
+    /// Search interactions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung, Blutungsrisiko)
+    Search {
+        /// Search term to find in interaction descriptions
+        #[arg(required = true)]
+        term: String,
+        /// Maximum number of results to show
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
     },
 }
 
@@ -52,6 +61,9 @@ fn main() -> Result<()> {
         Some(Commands::Check { drugs }) => {
             let drug_refs: Vec<&str> = drugs.iter().map(|s| s.as_str()).collect();
             basket_check(output_path, &drug_refs)?;
+        }
+        Some(Commands::Search { term, limit }) => {
+            search_interactions(output_path, &term, limit)?;
         }
         Some(Commands::Build) | None => {
             println!("=== Swiss Drug Interaction Finder (SDIF) ===");
@@ -109,6 +121,9 @@ fn extract_interaction_section(content: &str) -> String {
         .collect();
     positions.sort_by_key(|&(_, pos)| pos);
 
+    let mut main_section = String::new();
+    let mut supplementary = String::new();
+
     for (i, &(_, start)) in positions.iter().enumerate() {
         let end = if i + 1 < positions.len() {
             let next = positions[i + 1].1;
@@ -117,11 +132,53 @@ fn extract_interaction_section(content: &str) -> String {
             content.len()
         };
         let text = strip_html(&content[start..end]);
+
+        // Primary: the dedicated "Interaktionen" chapter
         if text.starts_with("Interaktionen") {
-            return text;
+            main_section = text;
+            continue;
+        }
+
+        // Supplementary: other chapters that contain interaction-relevant content
+        // e.g. "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen"
+        let is_relevant_section = text.starts_with("Warnhinweise")
+            || text.starts_with("Kontraindikationen")
+            || text.starts_with("Dosierung");
+
+        if !is_relevant_section {
+            continue;
+        }
+
+        // Extract sentences/paragraphs that mention interactions
+        let interaction_keywords = [
+            "interaktion", "wechselwirkung", "nicht kombinier",
+            "nicht gleichzeitig", "kontraindiziert mit",
+            "zusammen mit", "bei gleichzeitiger",
+            "potenzier", "neuromuskuläre blockade",
+        ];
+
+        for sentence in text.split('.') {
+            let sentence_lower = sentence.to_lowercase();
+            let mentions_interaction = interaction_keywords
+                .iter()
+                .any(|kw| sentence_lower.contains(kw));
+            if mentions_interaction && sentence.len() > 20 {
+                if !supplementary.is_empty() {
+                    supplementary.push_str(". ");
+                }
+                supplementary.push_str(sentence.trim());
+            }
         }
     }
-    String::new()
+
+    if !supplementary.is_empty() {
+        if main_section.is_empty() {
+            return supplementary;
+        }
+        format!("{} [Warnhinweise/Kontraindikationen:] {}", main_section, supplementary)
+    } else {
+        main_section
+    }
 }
 
 fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
@@ -529,23 +586,117 @@ fn write_interactions_db(
     Ok(())
 }
 
+fn search_interactions(db_path: &str, term: &str, limit: usize) -> Result<()> {
+    let conn = Connection::open(db_path)?;
+    let pattern = format!("%{}%", term);
+
+    let mut stmt = conn.prepare(
+        "SELECT drug_brand, drug_substance, interacting_substance, interacting_brands, \
+         description, severity_score, severity_label \
+         FROM interactions WHERE description LIKE ?1 \
+         ORDER BY severity_score DESC LIMIT ?2",
+    )?;
+
+    let rows: Vec<(String, String, String, String, String, u8, String)> = stmt
+        .query_map(params![pattern, limit], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if rows.is_empty() {
+        println!("No interactions found matching \"{}\".", term);
+        return Ok(());
+    }
+
+    // Also count total matches
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM interactions WHERE description LIKE ?1",
+        params![pattern],
+        |row| row.get(0),
+    )?;
+
+    println!(
+        "Found {} interactions matching \"{}\" (showing top {}):\n",
+        total,
+        term,
+        rows.len()
+    );
+
+    for (drug_brand, _drug_substance, interacting_substance, interacting_brands, desc, sev_score, sev_label) in &rows {
+        let other_brands = if interacting_brands.is_empty() {
+            String::new()
+        } else {
+            // Show first brand only to keep output concise
+            let first = interacting_brands.split(", ").next().unwrap_or("");
+            format!(" ({})", first)
+        };
+        println!(
+            "{} <-> {}{} | Severity: {} ({})",
+            drug_brand,
+            interacting_substance,
+            other_brands,
+            severity_indicator(*sev_score),
+            sev_label
+        );
+        println!("  {}\n", desc);
+    }
+
+    Ok(())
+}
+
 fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
     let conn = Connection::open(db_path)?;
 
     let mut basket_drugs: Vec<BasketDrug> = Vec::new();
-    for brand in basket {
+    for input in basket {
+        // Try brand name first, then fall back to substance name
         let mut stmt = conn.prepare(
             "SELECT brand_name, active_substances, atc_code, atc_class, interactions_text FROM drugs WHERE brand_name LIKE ?1",
         )?;
-        let pattern = format!("%{}%", brand);
+        let pattern = format!("%{}%", input);
         let mut rows = stmt.query(params![pattern])?;
-        if let Some(row) = rows.next()? {
-            let brand_name: String = row.get(0)?;
-            let substances_str: String = row.get(1)?;
-            let atc_code: String = row.get::<_, Option<String>>(2)?.unwrap_or_default();
-            let atc_class: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-            let interactions_text: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
+        let found = if let Some(row) = rows.next()? {
+            Some((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            ))
+        } else {
+            drop(rows);
+            drop(stmt);
+            // Search by substance name via substance_brand_map
+            let mut stmt2 = conn.prepare(
+                "SELECT DISTINCT d.brand_name, d.active_substances, d.atc_code, d.atc_class, d.interactions_text \
+                 FROM substance_brand_map s JOIN drugs d ON d.brand_name = s.brand_name \
+                 WHERE s.substance LIKE ?1 LIMIT 1",
+            )?;
+            let pattern_lower = format!("%{}%", input.to_lowercase());
+            let mut rows2 = stmt2.query(params![pattern_lower])?;
+            if let Some(row) = rows2.next()? {
+                Some((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                ))
+            } else {
+                None
+            }
+        };
 
+        if let Some((brand_name, substances_str, atc_code, atc_class, interactions_text)) = found {
             let substances: Vec<String> = substances_str
                 .split(", ")
                 .map(|s| s.to_lowercase())
@@ -558,6 +709,8 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 atc_class,
                 interactions_text,
             });
+        } else {
+            println!("  Not found: {}", input);
         }
     }
 
@@ -756,6 +909,17 @@ fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<Class
         ("M04", &["urikosurik", "gichtmittel", "harnsäure", "allopurinol"]),
         // B03 = Antianämika
         ("B03", &["eisen", "eisenpräparat", "eisensupplementation"]),
+        // L02BA = Antiöstrogene / SERMs (Tamoxifen, Toremifen)
+        ("L02BA", &["toremifen", "tamoxifen", "antiöstrogen", "östrogen-rezeptor",
+                     "serm", "selektive östrogenrezeptor"]),
+        // L02B = Hormonantagonisten
+        ("L02B", &["hormonantagonist", "antihormon", "antiandrogen", "antiöstrogen"]),
+        // V03AB = Antidota (Sugammadex etc.)
+        ("V03AB", &["sugammadex", "antidot", "antagonisierung", "neuromuskuläre blockade",
+                     "verdrängung"]),
+        // M03A = Muskelrelaxantien, peripher wirkend
+        ("M03A", &["muskelrelax", "neuromuskulär", "rocuronium", "vecuronium",
+                    "succinylcholin", "curare"]),
     ];
 
     for &(atc_prefix, keywords) in class_keywords {
