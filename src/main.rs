@@ -741,6 +741,8 @@ fn score_severity(text: &str) -> (u8, &'static str) {
         "torsade",
         "rhabdomyolyse",
         "nierenversagen",
+        "niereninsuffizienz",
+        "nierenfunktionsstörung",
         "leberversagen",
         "atemdepression",
         "herzstillstand",

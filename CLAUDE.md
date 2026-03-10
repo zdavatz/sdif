@@ -50,7 +50,7 @@ sdif search "QT-Verlängerung" -l 5
 - Keyword-based scoring of interaction descriptions (German text)
 - Context extraction scans **all occurrences** of a substance and picks the snippet with the highest severity
 - 3 = **Kontraindiziert** (`###`): "kontraindiziert", "darf nicht", "nicht angewendet werden"
-- 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "nephrotoxisch", "hepatotoxisch", "abgeraten", "wird nicht empfohlen", "lymphoproliferation"
+- 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "nephrotoxisch", "hepatotoxisch", "niereninsuffizienz", "nierenfunktionsstörung", "abgeraten", "wird nicht empfohlen", "lymphoproliferation"
 - 1 = **Vorsicht** (`#`): "vorsicht", "überwach", "dosisanpassung", "verstärkt", "plasmaspiegel", "subtherapeutisch", "therapieversagen"
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
