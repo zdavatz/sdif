@@ -86,6 +86,31 @@ fn main() -> Result<()> {
 
             write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands)?;
             println!("Wrote interactions database to: {}", output_path);
+
+            // Severity stats
+            let mut sev_counts = [0u32; 4];
+            for interaction in &interactions {
+                let (score, _) = score_severity(&interaction.description);
+                sev_counts[score as usize] += 1;
+            }
+            let classified = interactions.len() as u32 - sev_counts[0];
+            let pct = if interactions.is_empty() { 0 } else {
+                (classified as f64 / interactions.len() as f64 * 100.0) as u32
+            };
+
+            let drugs_with_interactions = drugs.iter().filter(|d| !d.interactions_text.is_empty()).count();
+
+            println!("\n--- Build Statistics ---");
+            println!("  Drugs total:        {}", drugs.len());
+            println!("  With interactions:  {}", drugs_with_interactions);
+            println!("  Unique substances:  {}", substance_to_brands.len());
+            println!("  Interaction records: {}", interactions.len());
+            println!("  Severity breakdown:");
+            println!("    ### Kontraindiziert:  {:>6}", sev_counts[3]);
+            println!("    ##  Schwerwiegend:    {:>6}", sev_counts[2]);
+            println!("    #   Vorsicht:         {:>6}", sev_counts[1]);
+            println!("    -   Keine Einstufung: {:>6}", sev_counts[0]);
+            println!("  Classified: {}%", pct);
         }
     }
 
