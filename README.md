@@ -63,13 +63,9 @@ Generates `db/interactions.db` with the following tables:
 - **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
 - **substance_brand_map** — maps substance names to brand names
 
-### Stats (as of March 2026)
+### Stats
 
-- 4,476 drugs parsed (493 recovered via HTML Wirkstoffe fallback)
-- 2,339 unique substances
-- 57,301 interaction records (21,695 unique substance pairs)
-- ~40 ATC drug class keyword mappings
-- Severity distribution: 2,854 Kontraindiziert / 6,241 Schwerwiegend / 17,342 Vorsicht / 30,864 Keine Einstufung
+See the infographic at the top of this page — generated live from `db/interactions.db` via `python3 generate_stats.py`.
 
 ## Example: Ponstan + Marcoumar + Aspirin
 

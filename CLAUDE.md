@@ -58,8 +58,10 @@ sdif search "QT-Verlängerung" -l 5
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, default limit 20
 
 ## Stats image
-- `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_dd.mm.yyyy.png`
+- `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_HH.MM-dd.mm.yyyy.png`
+- Reads all values live from `db/interactions.db` (no hardcoded stats)
 - Requires matplotlib; embedded in README.md
+- After regenerating, update the filename reference in README.md
 
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`
