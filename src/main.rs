@@ -350,7 +350,7 @@ fn extract_substances_from_html(content: &str) -> Vec<String> {
         // Split by "und" / "et" for entries like "Nivolumab und Relatlimab"
         for name_raw in und_re.split(part) {
             let name = extract_substance_name(name_raw.trim());
-            if name.len() > 2 {
+            if name.len() > 2 && !substances.contains(&name) {
                 substances.push(name);
             }
         }
