@@ -31,9 +31,9 @@ enum Commands {
         /// Search term to find in interaction descriptions
         #[arg(required = true)]
         term: String,
-        /// Maximum number of results to show
-        #[arg(short, long, default_value = "20")]
-        limit: usize,
+        /// Maximum number of results to show (default: all)
+        #[arg(short, long)]
+        limit: Option<usize>,
     },
 }
 
@@ -968,50 +968,60 @@ fn write_interactions_db(
     Ok(())
 }
 
-fn search_interactions(db_path: &str, term: &str, limit: usize) -> Result<()> {
+fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Result<()> {
     let conn = Connection::open(db_path)?;
     let pattern = format!("%{}%", term);
 
-    let mut stmt = conn.prepare(
+    let query = if limit.is_some() {
         "SELECT drug_brand, drug_substance, interacting_substance, interacting_brands, \
          description, severity_score, severity_label \
          FROM interactions WHERE description LIKE ?1 \
-         ORDER BY severity_score DESC LIMIT ?2",
-    )?;
+         ORDER BY severity_score DESC LIMIT ?2"
+    } else {
+        "SELECT drug_brand, drug_substance, interacting_substance, interacting_brands, \
+         description, severity_score, severity_label \
+         FROM interactions WHERE description LIKE ?1 \
+         ORDER BY severity_score DESC"
+    };
+    let mut stmt = conn.prepare(query)?;
 
-    let rows: Vec<(String, String, String, String, String, u8, String)> = stmt
-        .query_map(params![pattern, limit], |row| {
+    let rows: Vec<(String, String, String, String, String, u8, String)> = if let Some(lim) = limit {
+        stmt.query_map(params![pattern, lim], |row| {
             Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
+                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
+                row.get(4)?, row.get(5)?, row.get(6)?,
             ))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+        })?.filter_map(|r| r.ok()).collect()
+    } else {
+        stmt.query_map(params![pattern], |row| {
+            Ok((
+                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
+                row.get(4)?, row.get(5)?, row.get(6)?,
+            ))
+        })?.filter_map(|r| r.ok()).collect()
+    };
 
     if rows.is_empty() {
         println!("No interactions found matching \"{}\".", term);
         return Ok(());
     }
 
-    // Also count total matches
-    let total: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM interactions WHERE description LIKE ?1",
-        params![pattern],
-        |row| row.get(0),
-    )?;
-
-    println!(
-        "Found {} interactions matching \"{}\" (showing top {}):\n",
-        total,
-        term,
-        rows.len()
-    );
+    if limit.is_some() {
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM interactions WHERE description LIKE ?1",
+            params![pattern],
+            |row| row.get(0),
+        )?;
+        println!(
+            "Found {} interactions matching \"{}\" (showing top {}):\n",
+            total, term, rows.len()
+        );
+    } else {
+        println!(
+            "Found {} interactions matching \"{}\":\n",
+            rows.len(), term
+        );
+    }
 
     for (drug_brand, _drug_substance, interacting_substance, interacting_brands, desc, sev_score, sev_label) in &rows {
         let other_brands = if interacting_brands.is_empty() {

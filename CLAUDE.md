@@ -62,7 +62,7 @@ sdif search "QT-Verlängerung" -l 5
 ## CLI
 - `sdif build [--download]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV first
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
-- `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, default limit 20
+- `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, shows all by default
 
 ## Stats image
 - `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_HHhMM-dd.mm.yyyy.png`
