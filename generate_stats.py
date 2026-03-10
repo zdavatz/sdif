@@ -3,7 +3,7 @@
 
 import sqlite3
 import sys
-from datetime import date
+from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -51,7 +51,9 @@ fig = plt.figure(figsize=(14, 8), facecolor='#ffffff')
 gs = GridSpec(2, 2, figure=fig, hspace=0.35, wspace=0.3,
              left=0.12, right=0.95, top=0.88, bottom=0.08)
 
-today = date.today().strftime('%d.%m.%Y')
+now = datetime.now()
+today = now.strftime('%d.%m.%Y')
+timestamp = now.strftime('%H.%M-%d.%m.%Y')
 title_color = '#222222'
 text_color = '#444444'
 accent = '#0277bd'
@@ -155,7 +157,7 @@ ax3.spines['bottom'].set_color('#ccc')
 ax3.spines['left'].set_visible(False)
 ax3.xaxis.set_visible(False)
 
-output = f'sdif_swiss_drug_interactions_finder_stats_{today}.png'
+output = f'sdif_swiss_drug_interactions_finder_stats_{timestamp}.png'
 plt.savefig(output, dpi=150, facecolor=fig.get_facecolor())
 plt.close()
 print(f'Saved {output}')
