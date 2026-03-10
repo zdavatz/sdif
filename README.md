@@ -52,6 +52,7 @@ Commands:
   check              Check interactions between drugs in a basket
   search             Search interactions by clinical term
   class-interactions List all class-level interactions across all drug pairs
+  serve              Start the web UI (default port 3000)
 ```
 
 Running `sdif` without a subcommand defaults to `build`.
@@ -98,6 +99,23 @@ INTERACTION [class-level]: Aspirin® S <-> Marcoumar® (antikoagul) | Severity: 
 
 Severity levels: ### Kontraindiziert, ## Schwerwiegend, # Vorsicht, - Keine Einstufung
 ```
+
+## Web UI
+
+```bash
+sdif serve           # starts on http://localhost:3000
+sdif serve -p 8080   # custom port
+```
+
+Features:
+- **Interaktions-Check**: Drug search with autocomplete, basket-based interaction checking with color-coded severity cards
+- **Klinische Suche**: Full-text search across all interaction descriptions (e.g. "QT-Verlängerung", "Blutungsrisiko")
+
+### API Endpoints
+
+- `GET /api/search-drugs?q=<term>` — Drug autocomplete (brand name or substance)
+- `POST /api/check` — Basket interaction check (JSON body: `{"drugs": ["Ponstan", "Marcoumar"]}`)
+- `GET /api/search-interactions?term=<term>&limit=<n>` — Clinical term search
 
 ## Example: Class-level interaction overview
 

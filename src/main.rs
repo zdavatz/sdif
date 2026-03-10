@@ -5,6 +5,8 @@ use regex::Regex;
 use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet};
 
+mod web;
+
 #[derive(Parser)]
 #[command(name = "sdif", about = "Swiss Drug Interaction Finder")]
 struct Cli {
@@ -28,6 +30,12 @@ enum Commands {
     },
     /// List all class-level interactions across all drug pairs
     ClassInteractions,
+    /// Start the web server
+    Serve {
+        /// Port to listen on
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+    },
     /// Search interactions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung, Blutungsrisiko)
     Search {
         /// Search term to find in interaction descriptions
@@ -70,6 +78,10 @@ fn main() -> Result<()> {
         }
         Some(Commands::ClassInteractions) => {
             list_class_interactions(output_path)?;
+        }
+        Some(Commands::Serve { port }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(web::serve(output_path, port))?;
         }
         Some(Commands::Search { term, limit }) => {
             search_interactions(output_path, &term, limit)?;
@@ -692,7 +704,7 @@ fn extract_interactions(drugs: &[Drug]) -> Result<Vec<Interaction>> {
 ///   2 = "Schwerwiegend"   — serious risk, avoid if possible
 ///   1 = "Vorsicht"        — use with caution, monitor
 ///   0 = "Keine Einstufung" — no severity keywords found
-fn score_severity(text: &str) -> (u8, &'static str) {
+pub fn score_severity(text: &str) -> (u8, &'static str) {
     let lower = text.to_lowercase();
 
     // Level 3: Contraindicated
@@ -811,7 +823,7 @@ fn score_severity(text: &str) -> (u8, &'static str) {
     (0, "Keine Einstufung")
 }
 
-fn severity_indicator(score: u8) -> &'static str {
+pub fn severity_indicator(score: u8) -> &'static str {
     match score {
         3 => "###",
         2 => "##",
@@ -1371,14 +1383,14 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
     Ok(())
 }
 
-struct ClassHit {
-    class_keyword: String,
-    context: String,
+pub struct ClassHit {
+    pub class_keyword: String,
+    pub context: String,
 }
 
 /// Search a drug's interaction text for class-level keywords that match the other drug.
 /// Maps ATC classes to keywords that appear in interaction texts.
-fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<ClassHit> {
+pub fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 
@@ -1511,7 +1523,7 @@ fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<Class
 /// Maps CYP enzymes to known inhibitors and inducers (by ATC prefix or substance name).
 /// When Drug A's interaction text mentions a CYP enzyme, and Drug B is a known
 /// inhibitor/inducer of that enzyme, we flag the interaction.
-fn find_cyp_interactions(interaction_text: &str, other_atc: &str, other_substances: &[String]) -> Vec<ClassHit> {
+pub fn find_cyp_interactions(interaction_text: &str, other_atc: &str, other_substances: &[String]) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 

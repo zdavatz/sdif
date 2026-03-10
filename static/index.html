@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDIF - Swiss Drug Interaction Finder</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; line-height: 1.5; }
+  .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 2px solid #ddd; }
+  .tab { padding: 10px 24px; cursor: pointer; border: none; background: none; font-size: 0.95rem; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 600; }
+  .tab:hover { color: #2563eb; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Search input */
+  .search-box { position: relative; margin-bottom: 16px; }
+  .search-box input { width: 100%; padding: 12px 16px; font-size: 1rem; border: 2px solid #ddd; border-radius: 8px; outline: none; }
+  .search-box input:focus { border-color: #2563eb; }
+  .autocomplete { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 0 0 8px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10; max-height: 300px; overflow-y: auto; display: none; }
+  .autocomplete-item { padding: 10px 16px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+  .autocomplete-item:hover { background: #f0f5ff; }
+  .autocomplete-item .brand { font-weight: 600; }
+  .autocomplete-item .meta { font-size: 0.8rem; color: #888; }
+
+  /* Basket */
+  .basket { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; min-height: 44px; }
+  .basket-drug { display: inline-flex; align-items: center; gap: 6px; background: #e8f0fe; color: #1a56db; padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; }
+  .basket-drug .atc { font-size: 0.75rem; color: #666; }
+  .basket-drug .remove { cursor: pointer; font-size: 1.1rem; color: #888; line-height: 1; }
+  .basket-drug .remove:hover { color: #e53e3e; }
+
+  .btn { padding: 10px 24px; font-size: 1rem; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:disabled { background: #93b4f5; cursor: not-allowed; }
+  .btn-clear { background: #f3f4f6; color: #666; margin-left: 8px; }
+  .btn-clear:hover { background: #e5e7eb; }
+  .actions { margin-bottom: 24px; }
+
+  /* Results */
+  .results { margin-top: 16px; }
+  .no-results { text-align: center; color: #888; padding: 40px 0; }
+  .interaction-card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .interaction-card.sev-3 { border-left-color: #dc2626; }
+  .interaction-card.sev-2 { border-left-color: #f59e0b; }
+  .interaction-card.sev-1 { border-left-color: #3b82f6; }
+  .interaction-card.sev-0 { border-left-color: #9ca3af; }
+  .interaction-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+  .interaction-drugs { font-weight: 600; font-size: 0.95rem; }
+  .interaction-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; color: #fff; }
+  .badge-3 { background: #dc2626; }
+  .badge-2 { background: #f59e0b; }
+  .badge-1 { background: #3b82f6; }
+  .badge-0 { background: #9ca3af; }
+  .interaction-type { font-size: 0.8rem; color: #888; margin-bottom: 6px; }
+  .interaction-desc { font-size: 0.88rem; color: #444; line-height: 1.6; max-height: 4.8em; overflow: hidden; position: relative; }
+  .interaction-desc.expanded { max-height: none; }
+  .expand-btn { font-size: 0.8rem; color: #2563eb; cursor: pointer; margin-top: 4px; display: inline-block; }
+
+  /* Search tab */
+  .search-results-count { color: #666; font-size: 0.9rem; margin-bottom: 12px; }
+
+  .loading { text-align: center; padding: 40px; color: #888; }
+  .basket-info { font-size: 0.85rem; color: #888; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>SDIF - Swiss Drug Interaction Finder</h1>
+  <p class="subtitle">Interaktionscheck auf Basis der Schweizer Fachinformationen (AmiKo)</p>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="check">Interaktions-Check</button>
+    <button class="tab" data-tab="search">Klinische Suche</button>
+  </div>
+
+  <!-- Tab 1: Basket Check -->
+  <div id="tab-check" class="tab-content active">
+    <div class="search-box">
+      <input type="text" id="drug-input" placeholder="Medikament suchen (Markenname oder Wirkstoff)..." autocomplete="off">
+      <div class="autocomplete" id="autocomplete"></div>
+    </div>
+    <p class="basket-info">Medikamente im Warenkorb:</p>
+    <div class="basket" id="basket"></div>
+    <div class="actions">
+      <button class="btn btn-primary" id="check-btn" disabled>Interaktionen prüfen</button>
+      <button class="btn btn-clear" id="clear-btn">Leeren</button>
+    </div>
+    <div class="results" id="check-results"></div>
+  </div>
+
+  <!-- Tab 2: Clinical Search -->
+  <div id="tab-search" class="tab-content">
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Klinischer Suchbegriff (z.B. QT-Verlängerung, Prothrombinzeit, Blutungsrisiko)...">
+    </div>
+    <div class="results" id="search-results"></div>
+  </div>
+</div>
+
+<script>
+const basket = []; // [{brand, atc_code, substances, input}]
+let debounceTimer = null;
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Drug autocomplete
+const drugInput = document.getElementById('drug-input');
+const autocomplete = document.getElementById('autocomplete');
+
+drugInput.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  const q = drugInput.value.trim();
+  if (q.length < 2) { autocomplete.style.display = 'none'; return; }
+  debounceTimer = setTimeout(() => searchDrugs(q), 200);
+});
+
+drugInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') autocomplete.style.display = 'none';
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-box')) autocomplete.style.display = 'none';
+});
+
+async function searchDrugs(q) {
+  const res = await fetch('/api/search-drugs?q=' + encodeURIComponent(q));
+  const drugs = await res.json();
+  if (!drugs.length) { autocomplete.style.display = 'none'; return; }
+  autocomplete.innerHTML = drugs.map(d =>
+    `<div class="autocomplete-item" data-brand="${esc(d.brand_name)}" data-atc="${esc(d.atc_code)}" data-substances="${esc(d.substances)}">
+      <div class="brand">${esc(d.brand_name)}</div>
+      <div class="meta">[${esc(d.atc_code)}] ${esc(d.substances)}</div>
+    </div>`
+  ).join('');
+  autocomplete.style.display = 'block';
+  autocomplete.querySelectorAll('.autocomplete-item').forEach(item => {
+    item.addEventListener('click', () => addToBasket(item.dataset.brand, item.dataset.atc, item.dataset.substances));
+  });
+}
+
+function addToBasket(brand, atc, substances) {
+  if (basket.some(d => d.brand === brand)) return;
+  basket.push({ brand, atc_code: atc, substances, input: brand });
+  renderBasket();
+  drugInput.value = '';
+  autocomplete.style.display = 'none';
+  drugInput.focus();
+}
+
+function removeFromBasket(idx) {
+  basket.splice(idx, 1);
+  renderBasket();
+}
+
+function renderBasket() {
+  const el = document.getElementById('basket');
+  el.innerHTML = basket.map((d, i) =>
+    `<span class="basket-drug">
+      <strong>${esc(d.brand)}</strong> <span class="atc">[${esc(d.atc_code)}]</span>
+      <span class="remove" onclick="removeFromBasket(${i})">&times;</span>
+    </span>`
+  ).join('');
+  document.getElementById('check-btn').disabled = basket.length < 2;
+}
+
+document.getElementById('clear-btn').addEventListener('click', () => {
+  basket.length = 0;
+  renderBasket();
+  document.getElementById('check-results').innerHTML = '';
+});
+
+// Check interactions
+document.getElementById('check-btn').addEventListener('click', checkInteractions);
+
+async function checkInteractions() {
+  const btn = document.getElementById('check-btn');
+  const resultsEl = document.getElementById('check-results');
+  btn.disabled = true;
+  resultsEl.innerHTML = '<div class="loading">Interaktionen werden geprüft...</div>';
+
+  const res = await fetch('/api/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drugs: basket.map(d => d.brand) }),
+  });
+  const data = await res.json();
+  btn.disabled = basket.length < 2;
+
+  if (!data.interactions.length) {
+    resultsEl.innerHTML = '<div class="no-results">Keine Interaktionen gefunden.</div>';
+    return;
+  }
+
+  resultsEl.innerHTML = data.interactions.map(renderInteraction).join('');
+  attachExpandHandlers();
+}
+
+function renderInteraction(ix) {
+  const typeLabel = ix.interaction_type === 'substance' ? 'Substanz-Match' :
+                    ix.interaction_type === 'class-level' ? 'ATC-Klasse' : 'CYP-Enzym';
+  const kw = ix.keyword ? ` (${esc(ix.keyword)})` : '';
+  return `<div class="interaction-card sev-${ix.severity_score}">
+    <div class="interaction-header">
+      <span class="interaction-drugs">${esc(ix.drug_a)} &harr; ${esc(ix.drug_b)}</span>
+      <span class="interaction-badge badge-${ix.severity_score}">${ix.severity_indicator} ${esc(ix.severity_label)}</span>
+    </div>
+    <div class="interaction-type">${typeLabel}${kw}</div>
+    <div class="interaction-desc">${esc(ix.description)}</div>
+    <span class="expand-btn">mehr anzeigen</span>
+  </div>`;
+}
+
+// Clinical search
+const searchInput = document.getElementById('search-input');
+let searchTimer = null;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const term = searchInput.value.trim();
+  if (term.length < 3) { document.getElementById('search-results').innerHTML = ''; return; }
+  searchTimer = setTimeout(() => searchInteractions(term), 400);
+});
+
+async function searchInteractions(term) {
+  const resultsEl = document.getElementById('search-results');
+  resultsEl.innerHTML = '<div class="loading">Suche...</div>';
+  const res = await fetch('/api/search-interactions?term=' + encodeURIComponent(term) + '&limit=50');
+  const data = await res.json();
+
+  if (!data.results.length) {
+    resultsEl.innerHTML = '<div class="no-results">Keine Ergebnisse für &quot;' + esc(term) + '&quot;.</div>';
+    return;
+  }
+
+  resultsEl.innerHTML = `<p class="search-results-count">${data.total} Interaktionen gefunden${data.total > 50 ? ' (Top 50 angezeigt)' : ''}</p>` +
+    data.results.map(r => {
+      const brandInfo = r.interacting_brand ? ` (${esc(r.interacting_brand)})` : '';
+      return `<div class="interaction-card sev-${r.severity_score}">
+        <div class="interaction-header">
+          <span class="interaction-drugs">${esc(r.drug_brand)} &harr; ${esc(r.interacting_substance)}${brandInfo}</span>
+          <span class="interaction-badge badge-${r.severity_score}">${r.severity_indicator} ${esc(r.severity_label)}</span>
+        </div>
+        <div class="interaction-desc">${esc(r.description)}</div>
+        <span class="expand-btn">mehr anzeigen</span>
+      </div>`;
+    }).join('');
+  attachExpandHandlers();
+}
+
+function attachExpandHandlers() {
+  document.querySelectorAll('.expand-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const desc = btn.previousElementSibling;
+      desc.classList.toggle('expanded');
+      btn.textContent = desc.classList.contains('expanded') ? 'weniger' : 'mehr anzeigen';
+    });
+  });
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

@@ -64,6 +64,7 @@ sdif search "QT-Verlängerung" -l 5
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, shows all by default
 - `sdif class-interactions` — list all class-level interactions across all drug pairs, showing per-ATC-class stats (drugs in class, drugs mentioning class keywords, potential pairs)
+- `sdif serve [-p PORT]` — start Axum web server (default port 3000) with basket check UI, drug autocomplete, and clinical search
 
 ## Stats image
 - `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_HHhMM-dd.mm.yyyy.png`
@@ -71,5 +72,11 @@ sdif search "QT-Verlängerung" -l 5
 - Requires matplotlib; embedded in README.md
 - After regenerating, update the filename reference in README.md
 
+## Web UI
+- `sdif serve` starts Axum web server, serves `static/index.html` via `include_str!`
+- API: `/api/search-drugs`, `/api/check`, `/api/search-interactions`
+- Frontend: vanilla HTML/CSS/JS, no build step, autocomplete + basket + severity-colored cards
+
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`
+- `axum`, `tokio`, `tower-http` (web server)
