@@ -38,6 +38,7 @@ sdif search "QT-Verlängerung" -l 5
 ### Interaction detection
 - **Substance-level**: Exact substance name match in interaction text (46,887 records, 17,504 unique substance pairs)
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
+  - Keywords defined in `txt/keywords.txt` (loaded at compile time via `include_str!`)
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
   - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements, SERMs (L02BA), muscle relaxants (M03A), antidotes (V03AB)
 - **CYP enzyme-level**: Detects CYP450-mediated interactions at query time (no extra DB columns)

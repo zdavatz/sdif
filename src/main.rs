@@ -1088,57 +1088,7 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
     let total = drugs.len();
     eprintln!("Scanning {} drugs for class-level interactions...", total);
 
-    // The class keywords used in find_class_interactions
-    let class_keywords: Vec<(&str, Vec<&str>)> = vec![
-        ("B01A", vec!["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist",
-                    "vitamin k antagonist", "blutgerinnungshemm", "thrombozytenaggregationshemm",
-                    "plättchenhemm", "antithrombotisch", "heparin", "thrombin-hemm",
-                    "faktor-xa", "direktes orales antikoagulans", "doak"]),
-        ("B01AC", vec!["thrombozytenaggregationshemm", "plättchenhemm", "thrombocytenaggregation"]),
-        ("M01A", vec!["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika",
-                    "nichtsteroidale antirheumatika", "cox-2", "cox-hemmer", "cyclooxygenase",
-                    "prostaglandinsynthesehemm", "entzündungshemm"]),
-        ("N02B", vec!["analgetik", "antipyretik", "acetylsalicylsäure", "paracetamol"]),
-        ("N02A", vec!["opioid", "opiat", "morphin", "atemdepression", "zns-depression"]),
-        ("C09A", vec!["ace-hemmer", "ace-inhibitor", "ace inhibitor", "angiotensin-converting"]),
-        ("C09B", vec!["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
-        ("C09C", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
-        ("C09D", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
-        ("C07", vec!["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker", "β-rezeptorenblocker", "beta-rezeptor", "β-rezeptor", "beta-adrenozeptor"]),
-        ("C08", vec!["calciumantagonist", "calciumkanalblocker", "kalziumantagonist", "kalziumkanalblocker", "calcium-antagonist"]),
-        ("C03", vec!["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
-        ("C03C", vec!["schleifendiuretik", "furosemid", "torasemid"]),
-        ("C03A", vec!["thiazid", "hydrochlorothiazid"]),
-        ("C01A", vec!["herzglykosid", "digoxin", "digitalis", "digitoxin"]),
-        ("C01B", vec!["antiarrhythmi", "amiodaron"]),
-        ("C10A", vec!["statin", "hmg-coa", "lipidsenk", "cholesterinsenk"]),
-        ("N06AB", vec!["ssri", "serotonin-wiederaufnahme", "serotonin reuptake", "selektive serotonin", "serotonerg"]),
-        ("N06A", vec!["antidepressiv", "trizyklisch", "serotonin", "snri", "maoh", "mao-hemmer", "monoaminoxidase"]),
-        ("A10", vec!["antidiabetik", "insulin", "blutzucker", "hypoglykämie", "orale antidiabetika", "sulfonylharnstoff", "metformin"]),
-        ("H02", vec!["corticosteroid", "kortikosteroid", "glucocorticoid", "glukokortikoid", "kortison", "steroid"]),
-        ("L04", vec!["immunsuppress", "ciclosporin", "tacrolimus", "mycophenolat", "azathioprin", "sirolimus"]),
-        ("L01", vec!["antineoplast", "zytostatik", "methotrexat", "chemotherap"]),
-        ("N03", vec!["antiepileptik", "antikonvulsiv", "krampflösend", "carbamazepin", "valproinsäure", "phenytoin", "enzymindukt"]),
-        ("N05A", vec!["antipsychoti", "neuroleptik", "qt-verlänger", "qt-zeit"]),
-        ("N05B", vec!["anxiolytik", "benzodiazepin"]),
-        ("N05C", vec!["sedativ", "hypnotik", "schlafmittel", "zns-dämfpend", "zns-depression"]),
-        ("J01", vec!["antibiotik", "antibakteriell"]),
-        ("J01FA", vec!["makrolid", "erythromycin", "clarithromycin", "azithromycin"]),
-        ("J01MA", vec!["fluorchinolon", "chinolon", "gyrasehemm"]),
-        ("J02A", vec!["antimykotik", "azol-antimykotik", "triazol", "itraconazol", "fluconazol", "voriconazol", "cyp3a4-hemm"]),
-        ("J05A", vec!["antiviral", "proteasehemm", "protease-inhibitor", "hiv"]),
-        ("A02BC", vec!["protonenpumpeninhibitor", "protonenpumpenhemm", "ppi", "säureblocker"]),
-        ("A02B", vec!["antazid", "h2-blocker", "h2-antagonist", "säurehemm"]),
-        ("G03A", vec!["kontrazeptiv", "östrogen", "orale kontrazeptiva", "hormonelle verhütung"]),
-        ("N07", vec!["dopaminerg", "cholinerg", "anticholinerg"]),
-        ("R03", vec!["bronchodilatat", "theophyllin", "sympathomimetik", "beta-2"]),
-        ("M04", vec!["urikosurik", "gichtmittel", "harnsäure", "allopurinol"]),
-        ("B03", vec!["eisen", "eisenpräparat", "eisensupplementation"]),
-        ("L02BA", vec!["toremifen", "tamoxifen", "antiöstrogen", "östrogen-rezeptor", "serm", "selektive östrogenrezeptor"]),
-        ("L02B", vec!["hormonantagonist", "antihormon", "antiandrogen", "antiöstrogen"]),
-        ("V03AB", vec!["sugammadex", "antidot", "antagonisierung", "neuromuskuläre blockade", "verdrängung"]),
-        ("M03A", vec!["muskelrelax", "neuromuskulär", "rocuronium", "vecuronium", "succinylcholin", "curare"]),
-    ];
+    let class_keywords = parse_class_keywords();
 
     // For each ATC class, count: how many drugs belong to it, how many OTHER drugs mention its keywords
     // Then show unique substance-pair level class interactions
@@ -1146,7 +1096,7 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
     // Group drugs by ATC prefix
     let mut drugs_in_class: HashMap<String, usize> = HashMap::new();
     for (prefix, _) in &class_keywords {
-        let count = drugs.iter().filter(|d| d.atc.starts_with(prefix)).count();
+        let count = drugs.iter().filter(|d| d.atc.starts_with(prefix.as_str())).count();
         drugs_in_class.insert(prefix.to_string(), count);
     }
 
@@ -1155,7 +1105,7 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
     let mut class_results: Vec<(String, usize, usize, u64, String)> = Vec::new(); // (prefix, drugs_in_class, drugs_mentioning, pair_count, best_keyword)
 
     for (prefix, keywords) in &class_keywords {
-        let n_in_class = *drugs_in_class.get(*prefix).unwrap_or(&0);
+        let n_in_class = *drugs_in_class.get(prefix.as_str()).unwrap_or(&0);
         if n_in_class == 0 {
             continue;
         }
@@ -1168,11 +1118,11 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
         for kw in keywords {
             let mut count = 0usize;
             for drug in &drugs {
-                if drug.atc.starts_with(prefix) {
+                if drug.atc.starts_with(prefix.as_str()) {
                     continue; // Skip drugs in the same class
                 }
                 let text_lower = drug.text.to_lowercase();
-                if text_lower.contains(kw) {
+                if text_lower.contains(kw.as_str()) {
                     mentioning_substances.insert(drug.substances.clone());
                     count += 1;
                 }
@@ -1388,122 +1338,40 @@ pub struct ClassHit {
     pub context: String,
 }
 
+/// Parse ATC class keywords from txt/keywords.txt (embedded at compile time).
+/// Format: ATC_PREFIX\tkeyword1, keyword2, ...
+/// Lines starting with # and empty lines are skipped.
+fn parse_class_keywords() -> Vec<(String, Vec<String>)> {
+    let raw = include_str!("../txt/keywords.txt");
+    let mut result = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((prefix, rest)) = line.split_once('\t') {
+            let keywords: Vec<String> = rest.split(',').map(|s| s.trim().to_string()).collect();
+            result.push((prefix.trim().to_string(), keywords));
+        }
+    }
+    result
+}
+
 /// Search a drug's interaction text for class-level keywords that match the other drug.
 /// Maps ATC classes to keywords that appear in interaction texts.
 pub fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 
-    let class_keywords: &[(&str, &[&str])] = &[
-        // B01A = Antithrombotische Mittel / Antikoagulantien
-        ("B01A", &["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist",
-                    "vitamin k antagonist", "blutgerinnungshemm", "thrombozytenaggregationshemm",
-                    "plättchenhemm", "antithrombotisch", "heparin", "thrombin-hemm",
-                    "faktor-xa", "direktes orales antikoagulans", "doak"]),
-        // B01AC = Thrombozytenaggregationshemmer (ASS, Clopidogrel)
-        ("B01AC", &["thrombozytenaggregationshemm", "plättchenhemm", "thrombocytenaggregation"]),
-        // M01A = Nichtsteroidale Antiphlogistika (NSAIDs/NSAR)
-        ("M01A", &["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika",
-                    "nichtsteroidale antirheumatika", "cox-2", "cox-hemmer", "cyclooxygenase",
-                    "prostaglandinsynthesehemm", "entzündungshemm"]),
-        // N02B = Andere Analgetika und Antipyretika (incl. ASS)
-        ("N02B", &["analgetik", "antipyretik", "acetylsalicylsäure", "paracetamol"]),
-        // N02A = Opioide
-        ("N02A", &["opioid", "opiat", "morphin", "atemdepression", "zns-depression"]),
-        // C09A/C09B = ACE-Hemmer
-        ("C09A", &["ace-hemmer", "ace-inhibitor", "ace inhibitor", "angiotensin-converting"]),
-        ("C09B", &["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
-        // C09C/C09D = Angiotensin-II-Antagonisten (Sartane)
-        ("C09C", &["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
-        ("C09D", &["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
-        // C07 = Beta-Blocker
-        ("C07", &["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker",
-                   "β-rezeptorenblocker", "beta-rezeptor", "β-rezeptor", "beta-adrenozeptor"]),
-        // C08 = Calciumkanalblocker
-        ("C08", &["calciumantagonist", "calciumkanalblocker", "kalziumantagonist",
-                   "kalziumkanalblocker", "calcium-antagonist"]),
-        // C03 = Diuretika
-        ("C03", &["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
-        // C03C = Schleifendiuretika
-        ("C03C", &["schleifendiuretik", "furosemid", "torasemid"]),
-        // C03A = Thiazide
-        ("C03A", &["thiazid", "hydrochlorothiazid"]),
-        // C01A = Herzglykoside (Digoxin)
-        ("C01A", &["herzglykosid", "digoxin", "digitalis", "digitoxin"]),
-        // C01B = Antiarrhythmika
-        ("C01B", &["antiarrhythmi", "amiodaron"]),
-        // C10A = Statine (Lipidsenker)
-        ("C10A", &["statin", "hmg-coa", "lipidsenk", "cholesterinsenk"]),
-        // N06AB = SSRIs
-        ("N06AB", &["ssri", "serotonin-wiederaufnahme", "serotonin reuptake",
-                     "selektive serotonin", "serotonerg"]),
-        // N06A = Antidepressiva allgemein
-        ("N06A", &["antidepressiv", "trizyklisch", "serotonin", "snri", "maoh",
-                    "mao-hemmer", "monoaminoxidase"]),
-        // A10 = Antidiabetika
-        ("A10", &["antidiabetik", "insulin", "blutzucker", "hypoglykämie", "orale antidiabetika",
-                   "sulfonylharnstoff", "metformin"]),
-        // H02 = Corticosteroide
-        ("H02", &["corticosteroid", "kortikosteroid", "glucocorticoid", "glukokortikoid",
-                   "kortison", "steroid"]),
-        // L04 = Immunsuppressiva
-        ("L04", &["immunsuppress", "ciclosporin", "tacrolimus", "mycophenolat", "azathioprin",
-                   "sirolimus"]),
-        // L01 = Antineoplastische Mittel
-        ("L01", &["antineoplast", "zytostatik", "methotrexat", "chemotherap"]),
-        // N03 = Antiepileptika
-        ("N03", &["antiepileptik", "antikonvulsiv", "krampflösend", "carbamazepin",
-                   "valproinsäure", "phenytoin", "enzymindukt"]),
-        // N05A = Antipsychotika
-        ("N05A", &["antipsychoti", "neuroleptik", "qt-verlänger", "qt-zeit"]),
-        // N05B/N05C = Anxiolytika / Sedativa
-        ("N05B", &["anxiolytik", "benzodiazepin"]),
-        ("N05C", &["sedativ", "hypnotik", "schlafmittel", "zns-dämfpend", "zns-depression"]),
-        // J01 = Antibiotika
-        ("J01", &["antibiotik", "antibakteriell"]),
-        // J01FA = Makrolide
-        ("J01FA", &["makrolid", "erythromycin", "clarithromycin", "azithromycin"]),
-        // J01MA = Fluorchinolone
-        ("J01MA", &["fluorchinolon", "chinolon", "gyrasehemm"]),
-        // J02A = Antimykotika systemisch
-        ("J02A", &["antimykotik", "azol-antimykotik", "triazol", "itraconazol",
-                    "fluconazol", "voriconazol", "cyp3a4-hemm"]),
-        // J05A = Antivirale
-        ("J05A", &["antiviral", "proteasehemm", "protease-inhibitor", "hiv"]),
-        // A02BC = Protonenpumpeninhibitoren (PPI)
-        ("A02BC", &["protonenpumpeninhibitor", "protonenpumpenhemm", "ppi", "säureblocker"]),
-        // A02B = Ulkusmittel
-        ("A02B", &["antazid", "h2-blocker", "h2-antagonist", "säurehemm"]),
-        // G03A = Hormonale Kontrazeptiva
-        ("G03A", &["kontrazeptiv", "östrogen", "orale kontrazeptiva", "hormonelle verhütung"]),
-        // N07 = Andere Mittel für das Nervensystem
-        ("N07", &["dopaminerg", "cholinerg", "anticholinerg"]),
-        // R03 = Mittel bei obstruktiven Atemwegserkrankungen
-        ("R03", &["bronchodilatat", "theophyllin", "sympathomimetik", "beta-2"]),
-        // M04 = Gichtmittel
-        ("M04", &["urikosurik", "gichtmittel", "harnsäure", "allopurinol"]),
-        // B03 = Antianämika
-        ("B03", &["eisen", "eisenpräparat", "eisensupplementation"]),
-        // L02BA = Antiöstrogene / SERMs (Tamoxifen, Toremifen)
-        ("L02BA", &["toremifen", "tamoxifen", "antiöstrogen", "östrogen-rezeptor",
-                     "serm", "selektive östrogenrezeptor"]),
-        // L02B = Hormonantagonisten
-        ("L02B", &["hormonantagonist", "antihormon", "antiandrogen", "antiöstrogen"]),
-        // V03AB = Antidota (Sugammadex etc.)
-        ("V03AB", &["sugammadex", "antidot", "antagonisierung", "neuromuskuläre blockade",
-                     "verdrängung"]),
-        // M03A = Muskelrelaxantien, peripher wirkend
-        ("M03A", &["muskelrelax", "neuromuskulär", "rocuronium", "vecuronium",
-                    "succinylcholin", "curare"]),
-    ];
+    let class_keywords = parse_class_keywords();
 
-    for &(atc_prefix, keywords) in class_keywords {
-        if !other_atc.starts_with(atc_prefix) {
+    for (atc_prefix, keywords) in &class_keywords {
+        if !other_atc.starts_with(atc_prefix.as_str()) {
             continue;
         }
 
-        for &keyword in keywords {
-            if text_lower.contains(keyword) {
+        for keyword in keywords {
+            if text_lower.contains(keyword.as_str()) {
                 let context = extract_context(interaction_text, keyword);
                 if !context.is_empty() {
                     hits.push(ClassHit {
