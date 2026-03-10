@@ -109,7 +109,7 @@ sdif serve -p 8080   # custom port
 
 Features:
 - **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, color-coded severity cards with explanations
-- **Klinische Suche**: Full-text search across all interaction descriptions (e.g. "QT-Verlängerung", "Blutungsrisiko")
+- **Klinische Suche**: Full-text search with type-ahead suggestions and hit counts (e.g. type "QT" to see "QT-Verlängerung (14)", "QT-Intervall (72)")
 - **ATC-Klassen**: Overview of all 42 ATC class-level interaction mappings with sortable table
 - **Shareable URLs**: Basket state encoded as ATC codes in URL (e.g. `?tab=check&drugs=M01AG01-B01AA04-N02BA01`)
 
@@ -117,6 +117,7 @@ Features:
 
 - `GET /api/search-drugs?q=<term>` — Drug autocomplete (brand name or substance)
 - `GET /api/search-drugs?atc=<code>` — Exact ATC code lookup
+- `GET /api/suggest-terms?q=<partial>` — Clinical term type-ahead with hit counts
 - `POST /api/check` — Basket interaction check (JSON body: `{"drugs": ["Ponstan", "Marcoumar"]}`)
 - `GET /api/search-interactions?term=<term>&limit=<n>` — Clinical term search
 - `GET /api/class-interactions` — ATC class-level interaction overview

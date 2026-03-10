@@ -27,6 +27,7 @@ pub async fn serve(db_path: &str, port: u16) -> Result<()> {
         .route("/api/search-drugs", get(search_drugs))
         .route("/api/check", post(check_interactions))
         .route("/api/search-interactions", get(search_interactions_api))
+        .route("/api/suggest-terms", get(suggest_terms_api))
         .route("/api/class-interactions", get(class_interactions_api))
         .with_state(state);
 
@@ -496,6 +497,87 @@ async fn search_interactions_api(
 
     match result {
         Ok(Ok(resp)) => Json(resp).into_response(),
+        _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+// --- Suggest clinical search terms ---
+
+#[derive(Deserialize)]
+struct SuggestQuery {
+    q: String,
+}
+
+#[derive(Serialize)]
+struct TermSuggestion {
+    term: String,
+    count: usize,
+}
+
+async fn suggest_terms_api(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SuggestQuery>,
+) -> impl IntoResponse {
+    let q = query.q.trim().to_lowercase();
+    if q.len() < 2 {
+        return Json(Vec::<TermSuggestion>::new()).into_response();
+    }
+
+    let db_path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Vec<TermSuggestion>> {
+        let conn = Connection::open(&db_path)?;
+        let pattern = format!("%{}%", q);
+        let mut stmt = conn.prepare(
+            "SELECT description FROM interactions WHERE description LIKE ?1 LIMIT 500"
+        )?;
+        let descriptions: Vec<String> = stmt
+            .query_map(params![pattern], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Extract words/phrases around the matching term
+        let mut term_counts: HashMap<String, usize> = HashMap::new();
+        let q_lower = q.to_lowercase();
+
+        for desc in &descriptions {
+            let desc_lower = desc.to_lowercase();
+            let mut pos = 0;
+            while let Some(idx) = desc_lower[pos..].find(&q_lower) {
+                let abs_idx = pos + idx;
+                // Expand to word boundaries (include hyphenated/compound words)
+                let start = desc_lower[..abs_idx]
+                    .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                let end = desc_lower[abs_idx..]
+                    .find(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',' || c == '.' || c == ';')
+                    .map(|i| abs_idx + i)
+                    .unwrap_or(desc_lower.len());
+
+                let word = desc[start..end].trim();
+                if word.len() >= q.len() + 1 && word.len() <= 40 {
+                    let key = word.to_lowercase();
+                    *term_counts.entry(key).or_insert(0) += 1;
+                }
+
+                pos = abs_idx + q_lower.len();
+            }
+        }
+
+        let mut suggestions: Vec<TermSuggestion> = term_counts
+            .into_iter()
+            .filter(|(_, count)| *count >= 2)
+            .map(|(term, count)| TermSuggestion { term, count })
+            .collect();
+        suggestions.sort_by(|a, b| b.count.cmp(&a.count));
+        suggestions.truncate(15);
+
+        Ok(suggestions)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(suggestions)) => Json(suggestions).into_response(),
         _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }

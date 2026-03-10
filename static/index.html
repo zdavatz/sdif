@@ -111,7 +111,8 @@
   <!-- Tab 2: Clinical Search -->
   <div id="tab-search" class="tab-content">
     <div class="search-box">
-      <input type="text" id="search-input" placeholder="Klinischer Suchbegriff (z.B. QT-Verlängerung, Prothrombinzeit, Blutungsrisiko)...">
+      <input type="text" id="search-input" placeholder="Klinischer Suchbegriff (z.B. QT-Verlängerung, Prothrombinzeit, Blutungsrisiko)..." autocomplete="off">
+      <div class="autocomplete" id="search-autocomplete"></div>
     </div>
     <div class="results" id="search-results"></div>
   </div>
@@ -234,7 +235,10 @@ function updateAcHighlight(items) {
 }
 
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.search-box')) autocomplete.style.display = 'none';
+  if (!e.target.closest('.search-box')) {
+    autocomplete.style.display = 'none';
+    searchAc.style.display = 'none';
+  }
 });
 
 async function searchDrugs(q) {
@@ -328,17 +332,88 @@ function renderInteraction(ix) {
 
 // Clinical search
 const searchInput = document.getElementById('search-input');
+const searchAc = document.getElementById('search-autocomplete');
 let searchTimer = null;
+let suggestTimer = null;
+let searchAcIdx = -1;
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
+  clearTimeout(suggestTimer);
   const term = searchInput.value.trim();
   updateUrl();
-  if (term.length < 3) { document.getElementById('search-results').innerHTML = ''; return; }
-  searchTimer = setTimeout(() => searchInteractions(term), 400);
+  if (term.length < 2) {
+    searchAc.style.display = 'none';
+    document.getElementById('search-results').innerHTML = '';
+    return;
+  }
+  suggestTimer = setTimeout(() => suggestTerms(term), 150);
+  if (term.length >= 3) {
+    searchTimer = setTimeout(() => searchInteractions(term), 500);
+  }
 });
 
+searchInput.addEventListener('keydown', (e) => {
+  const items = searchAc.querySelectorAll('.autocomplete-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchAcIdx = Math.min(searchAcIdx + 1, items.length - 1);
+    updateSearchAcHighlight(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchAcIdx = Math.max(searchAcIdx - 1, 0);
+    updateSearchAcHighlight(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (searchAcIdx >= 0 && searchAcIdx < items.length) {
+      searchInput.value = items[searchAcIdx].dataset.term;
+      searchAc.style.display = 'none';
+      searchAcIdx = -1;
+      updateUrl();
+      searchInteractions(searchInput.value.trim());
+    } else if (searchInput.value.trim().length >= 3) {
+      searchAc.style.display = 'none';
+      searchInteractions(searchInput.value.trim());
+    }
+  } else if (e.key === 'Escape') {
+    searchAc.style.display = 'none';
+    searchAcIdx = -1;
+  }
+});
+
+function updateSearchAcHighlight(items) {
+  items.forEach((el, i) => {
+    el.style.background = i === searchAcIdx ? '#e8f0fe' : '';
+  });
+  if (searchAcIdx >= 0 && items[searchAcIdx]) {
+    items[searchAcIdx].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+async function suggestTerms(q) {
+  const res = await fetch('/api/suggest-terms?q=' + encodeURIComponent(q));
+  const suggestions = await res.json();
+  searchAcIdx = -1;
+  if (!suggestions.length) { searchAc.style.display = 'none'; return; }
+  searchAc.innerHTML = suggestions.map(s =>
+    `<div class="autocomplete-item" data-term="${esc(s.term)}">
+      <span class="brand">${esc(s.term)}</span>
+      <span class="meta">${s.count} Treffer</span>
+    </div>`
+  ).join('');
+  searchAc.style.display = 'block';
+  searchAc.querySelectorAll('.autocomplete-item').forEach(item => {
+    item.addEventListener('click', () => {
+      searchInput.value = item.dataset.term;
+      searchAc.style.display = 'none';
+      updateUrl();
+      searchInteractions(item.dataset.term);
+    });
+  });
+}
+
 async function searchInteractions(term) {
+  searchAc.style.display = 'none';
   const resultsEl = document.getElementById('search-results');
   resultsEl.innerHTML = '<div class="loading">Suche...</div>';
   const res = await fetch('/api/search-interactions?term=' + encodeURIComponent(term) + '&limit=50');
