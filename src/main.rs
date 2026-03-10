@@ -263,34 +263,74 @@ fn extract_interaction_section(content: &str) -> String {
 /// Extract active substance names from the Zusammensetzung/Wirkstoffe section of the HTML content.
 /// Falls back to this when the ATC column has a code but no substance name.
 fn extract_substances_from_html(content: &str) -> Vec<String> {
-    // Match Wirkstoff / Wirkstoffe / Wirkstoff(e) header
-    let wirkstoff_re = Regex::new(r"Wirkstoff(?:e|\(e\))?</p>").unwrap();
-    let p_tag_re = Regex::new(r#"<p[^>]*class="spacing1"[^>]*>([^<]+)</p>"#).unwrap();
+    // Match Wirkstoff header — two patterns:
+    // 1. Header-only: "Wirkstoffe</p>" (substance in next <p>)
+    // 2. Inline: "Wirkstoff: Ceritinib.</p>" or "Wirkstoffe: Mercaptamin (als ...).</p>"
+    let wirkstoff_header_re = Regex::new(r"Wirkstoff(?:e|\(e\))?(?:\s|&#\d+;)*</p>").unwrap();
+    let wirkstoff_inline_re = Regex::new(
+        r"Wirkstoff(?:e|\(e\))?(?:\s*:\s*|\s+)([^<]+)</p>"
+    ).unwrap();
+    let p_tag_re = Regex::new(r#"<p[^>]*class="spacing1"[^>]*>(.*?)</p>"#).unwrap();
+    let italic_re = Regex::new(r#"font-style:\s*italic"#).unwrap();
     let html_entity_re = Regex::new(r"&#\d+;").unwrap();
+    let html_tag_re = Regex::new(r"<[^>]+>").unwrap();
     let und_re = Regex::new(r"\s+und\s+|\s+et\s+").unwrap();
 
-    let wirkstoff_pos = match wirkstoff_re.find(content) {
-        Some(m) => m.end(),
+    let mut substance_text = String::new();
+
+    // Find the Zusammensetzung section title (in absTitle div), not a mention in body text
+    let zusammensetzung_re = Regex::new(
+        r#"(?i)class="absTitle"[^>]*>\s*Zusammensetzung"#
+    ).unwrap();
+    let zus_start = match zusammensetzung_re.find(content) {
+        Some(m) => m.start(),
         None => return Vec::new(),
     };
+    // Limit to the Zusammensetzung section (until next absTitle div)
+    let next_section_re = Regex::new(r#"class="absTitle""#).unwrap();
+    let zus_end = next_section_re.find(&content[zus_start + 10..])
+        .map(|m| zus_start + 10 + m.start())
+        .unwrap_or(content.len());
+    let zus_content = &content[zus_start..zus_end];
 
-    // Collect <p> tag contents until we hit Hilfsstoff
-    let remainder = &content[wirkstoff_pos..];
-    let mut substance_text = String::new();
-    for cap in p_tag_re.captures_iter(remainder) {
+    // Try inline pattern first: "Wirkstoff: SubstanceName</p>" or "Wirkstoffe: X.</p>"
+    if let Some(cap) = wirkstoff_inline_re.captures(zus_content) {
         let text = cap[1].trim().to_string();
-        let text_lower = text.to_lowercase();
-        if text_lower.contains("hilfsstoff") {
-            break;
+        if !text.is_empty() {
+            substance_text = text;
         }
-        // Skip italic sub-headers (e.g. "Tablettenkern:", "Filmtabletten:")
-        if text.ends_with(':') {
-            break;
+    }
+
+    // Otherwise use header-only pattern and collect from following <p> tags
+    if substance_text.is_empty() {
+        let wirkstoff_pos = match wirkstoff_header_re.find(zus_content) {
+            Some(m) => m.end(),
+            None => return Vec::new(),
+        };
+        let absolute_pos = zus_start + wirkstoff_pos;
+
+        let remainder = &content[absolute_pos..];
+        for cap in p_tag_re.captures_iter(remainder) {
+            let full_tag = cap[0].to_string();
+            let text = html_tag_re.replace_all(&cap[1], "").trim().to_string();
+            let text_lower = text.to_lowercase();
+
+            // Stop at Hilfsstoff(e)
+            if text_lower.contains("hilfsstoff") || text_lower.contains("excipient") {
+                break;
+            }
+
+            // Skip italic sub-headers (dosage forms like "Morgendosis:", "Durchstechflasche:")
+            // but don't break — more substance paragraphs may follow
+            if italic_re.is_match(&full_tag) {
+                continue;
+            }
+
+            if !substance_text.is_empty() {
+                substance_text.push_str(", ");
+            }
+            substance_text.push_str(&text);
         }
-        if !substance_text.is_empty() {
-            substance_text.push_str(", ");
-        }
-        substance_text.push_str(&text);
     }
 
     if substance_text.is_empty() {
@@ -331,6 +371,11 @@ fn extract_substance_name(text: &str) -> String {
     // Remove trailing period
     name = name.trim_end_matches('.').trim().to_string();
 
+    // Truncate at footnote markers (* or **)
+    if let Some(pos) = name.find('*') {
+        name = name[..pos].trim().to_string();
+    }
+
     // Take text before "als" or "ut" (salt form indicator)
     for separator in &[" als ", " ut "] {
         if let Some(pos) = name.to_lowercase().find(separator) {
@@ -343,18 +388,52 @@ fn extract_substance_name(text: &str) -> String {
         name = name[..pos].trim().to_string();
     }
 
-    // Strip trailing period again (in case it was before parentheses)
+    // Truncate at descriptive phrases: "ist ein...", "wird ...", "aus ..."
+    for phrase in &[" ist ein", " wird ", " aus ", " der ", " die ", " das ", " ein "] {
+        if let Some(pos) = name.to_lowercase().find(phrase) {
+            // Ensure we slice at valid char boundary in original string
+            if name.is_char_boundary(pos) {
+                name = name[..pos].trim().to_string();
+            }
+        }
+    }
+
+    // Strip trailing period again
     name = name.trim_end_matches('.').trim().to_string();
 
     // Strip Latin -um suffix to get INN name (e.g. Desvenlafaxinum → Desvenlafaxin)
     // But only for typical Latin pharmaceutical suffixes, not words like "Aluminium"
     if name.ends_with("um") && name.len() > 6 {
         let stem = &name[..name.len() - 2];
-        // Latin pharma names typically end in -inum, -abum, -ibum, etc.
-        // Check it's not a common word ending in -um (Aluminium, Calcium, etc.)
         let lower = name.to_lowercase();
         if !lower.ends_with("ium") && !lower.ends_with("eum") {
             name = stem.to_string();
+        }
+    }
+
+    // Substance names are at most 3 words (e.g. "Lisocabtagen Maraleucel")
+    // Anything longer is likely a description leaking through
+    let words: Vec<&str> = name.split_whitespace().collect();
+    if words.len() > 3 {
+        name = words[..3].join(" ");
+    }
+
+    // Substance names must start with an uppercase letter (or digit for things like "18F-...")
+    let first_char = name.chars().next().unwrap_or(' ');
+    if !first_char.is_uppercase() && !first_char.is_ascii_digit() {
+        return String::new();
+    }
+
+    // Reject fragments that start with common German words (sentence fragments, not substance names)
+    let lower = name.to_lowercase();
+    let reject_starts = [
+        "jeder ", "die ", "der ", "das ", "den ", "dem ", "des ",
+        "ein ", "eine ", "einer ", "einem ", "einen ",
+        "enthält", "besteht", "gereinigt", "konjugiert",
+    ];
+    for prefix in &reject_starts {
+        if lower.starts_with(prefix) {
+            return String::new();
         }
     }
 
