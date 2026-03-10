@@ -53,7 +53,7 @@ gs = GridSpec(2, 2, figure=fig, hspace=0.35, wspace=0.3,
 
 now = datetime.now()
 today = now.strftime('%d.%m.%Y')
-timestamp = now.strftime('%H.%M-%d.%m.%Y')
+timestamp = now.strftime('%H:%M-%d.%m.%Y')
 title_color = '#222222'
 text_color = '#444444'
 accent = '#0277bd'
