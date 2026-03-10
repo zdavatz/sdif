@@ -74,8 +74,8 @@ sdif search "QT-Verlängerung" -l 5
 
 ## Web UI
 - `sdif serve` starts Axum web server, serves `static/index.html` via `include_str!`
-- API: `/api/search-drugs`, `/api/check`, `/api/search-interactions`
-- Frontend: vanilla HTML/CSS/JS, no build step, autocomplete + basket + severity-colored cards
+- API: `/api/search-drugs`, `/api/check`, `/api/search-interactions`, `/api/class-interactions`
+- Frontend: vanilla HTML/CSS/JS, no build step, autocomplete + basket + severity-colored cards + sortable ATC class table
 
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`

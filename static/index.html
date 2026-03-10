@@ -69,6 +69,17 @@
 
   .loading { text-align: center; padding: 40px; color: #888; }
   .basket-info { font-size: 0.85rem; color: #888; margin-bottom: 8px; }
+
+  /* Class table */
+  .class-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .class-table th { background: #f0f4f8; padding: 10px 12px; text-align: left; border-bottom: 2px solid #ddd; cursor: pointer; user-select: none; white-space: nowrap; }
+  .class-table th:hover { background: #e2e8f0; }
+  .class-table th.sort-asc::after { content: " \u25b2"; font-size: 0.7rem; }
+  .class-table th.sort-desc::after { content: " \u25bc"; font-size: 0.7rem; }
+  .class-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+  .class-table tr:hover { background: #f8fafc; }
+  .class-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .class-total { margin-top: 16px; font-size: 0.95rem; color: #444; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -79,6 +90,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="check">Interaktions-Check</button>
     <button class="tab" data-tab="search">Klinische Suche</button>
+    <button class="tab" data-tab="classes">ATC-Klassen</button>
   </div>
 
   <!-- Tab 1: Basket Check -->
@@ -103,6 +115,11 @@
     </div>
     <div class="results" id="search-results"></div>
   </div>
+
+  <!-- Tab 3: ATC Class Overview -->
+  <div id="tab-classes" class="tab-content">
+    <div id="class-results"></div>
+  </div>
 </div>
 
 <script>
@@ -110,12 +127,16 @@ const basket = []; // [{brand, atc_code, substances, input}]
 let debounceTimer = null;
 
 // Tabs
+let classDataLoaded = false;
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'classes' && !classDataLoaded) {
+      loadClassInteractions();
+    }
   });
 });
 
@@ -277,6 +298,73 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
   return d.innerHTML;
+}
+
+// ATC Class overview
+let classData = null;
+let classSortCol = 'potential_pairs';
+let classSortDir = 'desc';
+
+async function loadClassInteractions() {
+  const el = document.getElementById('class-results');
+  el.innerHTML = '<div class="loading">ATC-Klassen werden analysiert (kann einige Sekunden dauern)...</div>';
+  const res = await fetch('/api/class-interactions');
+  classData = await res.json();
+  classDataLoaded = true;
+  renderClassTable();
+}
+
+function renderClassTable() {
+  if (!classData) return;
+  const el = document.getElementById('class-results');
+
+  const sorted = [...classData.classes].sort((a, b) => {
+    let va = a[classSortCol], vb = b[classSortCol];
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if (classSortDir === 'asc') return va < vb ? -1 : va > vb ? 1 : 0;
+    return va > vb ? -1 : va < vb ? 1 : 0;
+  });
+
+  const cols = [
+    { key: 'atc_prefix', label: 'ATC-Code' },
+    { key: 'description', label: 'Klasse' },
+    { key: 'drugs_in_class', label: 'Medikamente', cls: 'num' },
+    { key: 'drugs_mentioning', label: 'Erwähnungen', cls: 'num' },
+    { key: 'potential_pairs', label: 'Potenzielle Paare', cls: 'num' },
+    { key: 'top_keyword', label: 'Top-Keyword' },
+  ];
+
+  el.innerHTML = `
+    <table class="class-table">
+      <thead><tr>${cols.map(c => {
+        let cls = '';
+        if (c.key === classSortCol) cls = classSortDir === 'asc' ? 'sort-asc' : 'sort-desc';
+        return `<th class="${cls}" data-col="${c.key}">${c.label}</th>`;
+      }).join('')}</tr></thead>
+      <tbody>${sorted.map(r => `<tr>
+        <td><strong>${esc(r.atc_prefix)}</strong></td>
+        <td>${esc(r.description)}</td>
+        <td class="num">${r.drugs_in_class.toLocaleString('de-CH')}</td>
+        <td class="num">${r.drugs_mentioning.toLocaleString('de-CH')}</td>
+        <td class="num"><strong>${r.potential_pairs.toLocaleString('de-CH')}</strong></td>
+        <td>${esc(r.top_keyword)}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <p class="class-total">Total: ${classData.total_pairs.toLocaleString('de-CH')} potenzielle Klassen-Interaktionspaare in ${classData.classes.length} ATC-Klassen</p>
+  `;
+
+  el.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (classSortCol === col) {
+        classSortDir = classSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        classSortCol = col;
+        classSortDir = (col === 'atc_prefix' || col === 'description' || col === 'top_keyword') ? 'asc' : 'desc';
+      }
+      renderClassTable();
+    });
+  });
 }
 </script>
 </body>

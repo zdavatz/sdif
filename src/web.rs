@@ -8,6 +8,7 @@ use axum::{
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::{find_class_interactions, find_cyp_interactions, score_severity, severity_indicator};
@@ -26,6 +27,7 @@ pub async fn serve(db_path: &str, port: u16) -> Result<()> {
         .route("/api/search-drugs", get(search_drugs))
         .route("/api/check", post(check_interactions))
         .route("/api/search-interactions", get(search_interactions_api))
+        .route("/api/class-interactions", get(class_interactions_api))
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", port);
@@ -429,6 +431,206 @@ async fn search_interactions_api(
             total,
             results: rows,
         })
+    })
+    .await;
+
+    match result {
+        Ok(Ok(resp)) => Json(resp).into_response(),
+        _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+// --- Class-level interaction overview ---
+
+#[derive(Serialize)]
+struct ClassInteractionRow {
+    atc_prefix: String,
+    description: String,
+    drugs_in_class: usize,
+    drugs_mentioning: usize,
+    potential_pairs: u64,
+    top_keyword: String,
+}
+
+#[derive(Serialize)]
+struct ClassInteractionsResponse {
+    total_pairs: u64,
+    classes: Vec<ClassInteractionRow>,
+}
+
+fn atc_class_description(prefix: &str) -> &'static str {
+    match prefix {
+        "B01A" => "Antikoagulantien",
+        "B01AC" => "Thrombozytenaggregationshemmer",
+        "M01A" => "NSAR (NSAIDs)",
+        "N02B" => "Analgetika / Antipyretika",
+        "N02A" => "Opioide",
+        "C09A" => "ACE-Hemmer",
+        "C09B" => "ACE-Hemmer (Kombination)",
+        "C09C" => "Sartane (AT1-Antagonisten)",
+        "C09D" => "Sartane (Kombination)",
+        "C07" => "Beta-Blocker",
+        "C08" => "Calciumkanalblocker",
+        "C03" => "Diuretika",
+        "C03C" => "Schleifendiuretika",
+        "C03A" => "Thiazide",
+        "C01A" => "Herzglykoside",
+        "C01B" => "Antiarrhythmika",
+        "C10A" => "Statine",
+        "N06AB" => "SSRIs",
+        "N06A" => "Antidepressiva",
+        "A10" => "Antidiabetika",
+        "H02" => "Corticosteroide",
+        "L04" => "Immunsuppressiva",
+        "L01" => "Antineoplastika",
+        "N03" => "Antiepileptika",
+        "N05A" => "Antipsychotika",
+        "N05B" => "Anxiolytika",
+        "N05C" => "Sedativa / Hypnotika",
+        "J01" => "Antibiotika",
+        "J01FA" => "Makrolide",
+        "J01MA" => "Fluorchinolone",
+        "J02A" => "Antimykotika",
+        "J05A" => "Antivirale",
+        "A02BC" => "PPI (Protonenpumpenhemmer)",
+        "A02B" => "Ulkusmittel",
+        "G03A" => "Hormonale Kontrazeptiva",
+        "N07" => "Nervensystem (andere)",
+        "R03" => "Bronchodilatatoren",
+        "M04" => "Gichtmittel",
+        "B03" => "Eisenpräparate",
+        "L02BA" => "SERMs (Tamoxifen)",
+        "L02B" => "Hormonantagonisten",
+        "V03AB" => "Antidota",
+        "M03A" => "Muskelrelaxantien",
+        _ => "",
+    }
+}
+
+async fn class_interactions_api(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let db_path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<ClassInteractionsResponse> {
+        let conn = Connection::open(&db_path)?;
+
+        let mut stmt = conn.prepare(
+            "SELECT brand_name, atc_code, active_substances, interactions_text FROM drugs \
+             WHERE length(interactions_text) > 0 AND atc_code IS NOT NULL AND atc_code != ''"
+        )?;
+        struct DrugRow { atc: String, substances: String, text: String }
+        let drugs: Vec<DrugRow> = stmt
+            .query_map([], |row| {
+                Ok(DrugRow {
+                    atc: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    substances: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    text: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .filter(|d| !d.atc.is_empty() && !d.text.is_empty())
+            .collect();
+
+        let class_keywords: Vec<(&str, Vec<&str>)> = vec![
+            ("B01A", vec!["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist",
+                        "vitamin k antagonist", "blutgerinnungshemm", "thrombozytenaggregationshemm",
+                        "plättchenhemm", "antithrombotisch", "heparin", "thrombin-hemm",
+                        "faktor-xa", "direktes orales antikoagulans", "doak"]),
+            ("B01AC", vec!["thrombozytenaggregationshemm", "plättchenhemm", "thrombocytenaggregation"]),
+            ("M01A", vec!["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika",
+                        "nichtsteroidale antirheumatika", "cox-2", "cox-hemmer", "cyclooxygenase",
+                        "prostaglandinsynthesehemm", "entzündungshemm"]),
+            ("N02B", vec!["analgetik", "antipyretik", "acetylsalicylsäure", "paracetamol"]),
+            ("N02A", vec!["opioid", "opiat", "morphin", "atemdepression", "zns-depression"]),
+            ("C09A", vec!["ace-hemmer", "ace-inhibitor", "ace inhibitor", "angiotensin-converting"]),
+            ("C09B", vec!["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
+            ("C09C", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
+            ("C09D", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
+            ("C07", vec!["beta-blocker", "betablocker", "\u{03b2}-blocker", "betarezeptorenblocker", "beta-adrenozeptor"]),
+            ("C08", vec!["calciumantagonist", "calciumkanalblocker", "kalziumantagonist", "kalziumkanalblocker", "calcium-antagonist"]),
+            ("C03", vec!["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
+            ("C03C", vec!["schleifendiuretik", "furosemid", "torasemid"]),
+            ("C03A", vec!["thiazid", "hydrochlorothiazid"]),
+            ("C01A", vec!["herzglykosid", "digoxin", "digitalis", "digitoxin"]),
+            ("C01B", vec!["antiarrhythmi", "amiodaron"]),
+            ("C10A", vec!["statin", "hmg-coa", "lipidsenk", "cholesterinsenk"]),
+            ("N06AB", vec!["ssri", "serotonin-wiederaufnahme", "serotonin reuptake", "selektive serotonin", "serotonerg"]),
+            ("N06A", vec!["antidepressiv", "trizyklisch", "serotonin", "snri", "maoh", "mao-hemmer", "monoaminoxidase"]),
+            ("A10", vec!["antidiabetik", "insulin", "blutzucker", "hypoglyk\u{00e4}mie", "orale antidiabetika", "sulfonylharnstoff", "metformin"]),
+            ("H02", vec!["corticosteroid", "kortikosteroid", "glucocorticoid", "glukokortikoid", "kortison", "steroid"]),
+            ("L04", vec!["immunsuppress", "ciclosporin", "tacrolimus", "mycophenolat", "azathioprin", "sirolimus"]),
+            ("L01", vec!["antineoplast", "zytostatik", "methotrexat", "chemotherap"]),
+            ("N03", vec!["antiepileptik", "antikonvulsiv", "krampfl\u{00f6}send", "carbamazepin", "valproins\u{00e4}ure", "phenytoin", "enzymindukt"]),
+            ("N05A", vec!["antipsychoti", "neuroleptik", "qt-verl\u{00e4}nger", "qt-zeit"]),
+            ("N05B", vec!["anxiolytik", "benzodiazepin"]),
+            ("N05C", vec!["sedativ", "hypnotik", "schlafmittel", "zns-d\u{00e4}mfpend", "zns-depression"]),
+            ("J01", vec!["antibiotik", "antibakteriell"]),
+            ("J01FA", vec!["makrolid", "erythromycin", "clarithromycin", "azithromycin"]),
+            ("J01MA", vec!["fluorchinolon", "chinolon", "gyrasehemm"]),
+            ("J02A", vec!["antimykotik", "azol-antimykotik", "triazol", "itraconazol", "fluconazol", "voriconazol", "cyp3a4-hemm"]),
+            ("J05A", vec!["antiviral", "proteasehemm", "protease-inhibitor", "hiv"]),
+            ("A02BC", vec!["protonenpumpeninhibitor", "protonenpumpenhemm", "ppi", "s\u{00e4}ureblocker"]),
+            ("A02B", vec!["antazid", "h2-blocker", "h2-antagonist", "s\u{00e4}urehemm"]),
+            ("G03A", vec!["kontrazeptiv", "\u{00f6}strogen", "orale kontrazeptiva", "hormonelle verh\u{00fc}tung"]),
+            ("N07", vec!["dopaminerg", "cholinerg", "anticholinerg"]),
+            ("R03", vec!["bronchodilatat", "theophyllin", "sympathomimetik", "beta-2"]),
+            ("M04", vec!["urikosurik", "gichtmittel", "harns\u{00e4}ure", "allopurinol"]),
+            ("B03", vec!["eisen", "eisenpr\u{00e4}parat", "eisensupplementation"]),
+            ("L02BA", vec!["toremifen", "tamoxifen", "anti\u{00f6}strogen", "\u{00f6}strogen-rezeptor", "serm", "selektive \u{00f6}strogenrezeptor"]),
+            ("L02B", vec!["hormonantagonist", "antihormon", "antiandrogen", "anti\u{00f6}strogen"]),
+            ("V03AB", vec!["sugammadex", "antidot", "antagonisierung", "neuromuskul\u{00e4}re blockade", "verdr\u{00e4}ngung"]),
+            ("M03A", vec!["muskelrelax", "neuromuskul\u{00e4}r", "rocuronium", "vecuronium", "succinylcholin", "curare"]),
+        ];
+
+        let mut drugs_in_class: HashMap<String, usize> = HashMap::new();
+        for (prefix, _) in &class_keywords {
+            let count = drugs.iter().filter(|d| d.atc.starts_with(prefix)).count();
+            drugs_in_class.insert(prefix.to_string(), count);
+        }
+
+        let mut total_pairs = 0u64;
+        let mut classes = Vec::new();
+
+        for (prefix, keywords) in &class_keywords {
+            let n_in_class = *drugs_in_class.get(*prefix).unwrap_or(&0);
+            if n_in_class == 0 { continue; }
+
+            let mut mentioning_substances: HashSet<String> = HashSet::new();
+            let mut best_keyword = String::new();
+            let mut best_count = 0usize;
+
+            for kw in keywords {
+                let mut count = 0usize;
+                for drug in &drugs {
+                    if drug.atc.starts_with(prefix) { continue; }
+                    let text_lower = drug.text.to_lowercase();
+                    if text_lower.contains(kw) {
+                        mentioning_substances.insert(drug.substances.clone());
+                        count += 1;
+                    }
+                }
+                if count > best_count {
+                    best_count = count;
+                    best_keyword = kw.to_string();
+                }
+            }
+
+            let n_mentioning = mentioning_substances.len();
+            let pair_count = (n_mentioning as u64) * (n_in_class as u64);
+            total_pairs += pair_count;
+            classes.push(ClassInteractionRow {
+                atc_prefix: prefix.to_string(),
+                description: atc_class_description(prefix).to_string(),
+                drugs_in_class: n_in_class,
+                drugs_mentioning: n_mentioning,
+                potential_pairs: pair_count,
+                top_keyword: best_keyword,
+            });
+        }
+
+        classes.sort_by(|a, b| b.potential_pairs.cmp(&a.potential_pairs));
+
+        Ok(ClassInteractionsResponse { total_pairs, classes })
     })
     .await;
 
