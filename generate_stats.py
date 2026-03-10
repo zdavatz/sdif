@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Generate stats PNG for SDIF project."""
+"""Generate stats PNG for SDIF project, reading live data from interactions.db."""
 
+import sqlite3
+import sys
 from datetime import date
 import matplotlib
 matplotlib.use('Agg')
@@ -8,6 +10,43 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
 
+DB_PATH = 'db/interactions.db'
+
+# --- Read stats from database ---
+try:
+    conn = sqlite3.connect(DB_PATH)
+except Exception as e:
+    print(f"Error opening {DB_PATH}: {e}", file=sys.stderr)
+    sys.exit(1)
+
+num_drugs = conn.execute("SELECT COUNT(*) FROM drugs").fetchone()[0]
+num_substances = conn.execute("SELECT COUNT(DISTINCT substance) FROM substance_brand_map").fetchone()[0]
+num_interactions = conn.execute("SELECT COUNT(*) FROM interactions").fetchone()[0]
+num_unique_pairs = conn.execute(
+    "SELECT COUNT(*) FROM ("
+    "  SELECT DISTINCT CASE WHEN drug_substance <= interacting_substance"
+    "    THEN drug_substance ELSE interacting_substance END AS a,"
+    "    CASE WHEN drug_substance <= interacting_substance"
+    "    THEN interacting_substance ELSE drug_substance END AS b"
+    "  FROM interactions"
+    ")"
+).fetchone()[0]
+
+sev_counts = {}
+for score, count in conn.execute(
+    "SELECT severity_score, COUNT(*) FROM interactions GROUP BY severity_score"
+):
+    sev_counts[score] = count
+conn.close()
+
+sev_kontra = sev_counts.get(3, 0)
+sev_schwer = sev_counts.get(2, 0)
+sev_vorsicht = sev_counts.get(1, 0)
+sev_keine = sev_counts.get(0, 0)
+classified = num_interactions - sev_keine
+pct_classified = int(classified / num_interactions * 100) if num_interactions else 0
+
+# --- Build chart ---
 fig = plt.figure(figsize=(14, 8), facecolor='#ffffff')
 gs = GridSpec(2, 2, figure=fig, hspace=0.35, wspace=0.3,
              left=0.12, right=0.95, top=0.88, bottom=0.08)
@@ -27,10 +66,10 @@ ax1.set_facecolor('#ffffff')
 ax1.axis('off')
 
 metrics = [
-    ('4,476', 'Drugs parsed'),
-    ('2,339', 'Unique substances'),
-    ('57,301', 'Interaction records'),
-    ('21,695', 'Unique substance pairs'),
+    (f'{num_drugs:,}', 'Drugs parsed'),
+    (f'{num_substances:,}', 'Unique substances'),
+    (f'{num_interactions:,}', 'Interaction records'),
+    (f'{num_unique_pairs:,}', 'Unique substance pairs'),
     ('~40', 'ATC class mappings'),
 ]
 
@@ -49,7 +88,7 @@ ax2 = fig.add_subplot(gs[0, 1])
 ax2.set_facecolor('#ffffff')
 
 severity_labels = ['Kontraindiziert', 'Schwerwiegend', 'Vorsicht', 'Keine Einstufung']
-severity_values = [2854, 6241, 17342, 30864]
+severity_values = [sev_kontra, sev_schwer, sev_vorsicht, sev_keine]
 severity_colors = ['#e53935', '#ff9800', '#fdd835', '#b0bec5']
 
 wedges, texts, autotexts = ax2.pie(
@@ -63,7 +102,7 @@ for t in autotexts:
     t.set_color('#ffffff')
 
 # Center text
-ax2.text(0, 0, '46%\nclassified', ha='center', va='center',
+ax2.text(0, 0, f'{pct_classified}%\nclassified', ha='center', va='center',
          fontsize=13, fontweight='bold', color=accent)
 
 ax2.set_title('Severity Distribution', fontsize=14, fontweight='bold',
@@ -83,7 +122,6 @@ ax3 = fig.add_subplot(gs[1, :])
 ax3.set_facecolor('#ffffff')
 
 severity_markers = ['###', '##', '#', '-']
-bar_positions = range(len(severity_labels))
 
 bar_positions = [i * 1.4 for i in range(len(severity_labels))]
 bars = ax3.barh(bar_positions, severity_values[::-1],
