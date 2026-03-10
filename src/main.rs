@@ -100,11 +100,20 @@ fn main() -> Result<()> {
 
             let drugs_with_interactions = drugs.iter().filter(|d| !d.interactions_text.is_empty()).count();
 
+            let unique_pairs: HashSet<(&str, &str)> = interactions
+                .iter()
+                .map(|i| {
+                    let a = i.drug_substance.as_str();
+                    let b = i.interacting_substance.as_str();
+                    if a <= b { (a, b) } else { (b, a) }
+                })
+                .collect();
+
             println!("\n--- Build Statistics ---");
-            println!("  Drugs total:        {}", drugs.len());
-            println!("  With interactions:  {}", drugs_with_interactions);
-            println!("  Unique substances:  {}", substance_to_brands.len());
-            println!("  Interaction records: {}", interactions.len());
+            println!("  Drugs total:         {}", drugs.len());
+            println!("  With interactions:   {}", drugs_with_interactions);
+            println!("  Unique substances:   {}", substance_to_brands.len());
+            println!("  Interaction records: {} ({} unique substance pairs)", interactions.len(), unique_pairs.len());
             println!("  Severity breakdown:");
             println!("    ### Kontraindiziert:  {:>6}", sev_counts[3]);
             println!("    ##  Schwerwiegend:    {:>6}", sev_counts[2]);
