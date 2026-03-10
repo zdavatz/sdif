@@ -71,7 +71,7 @@ Generates `db/interactions.db` with the following tables:
 
 - 3,983 drugs parsed
 - 1,230 unique substances
-- 40,016 interaction records
+- 40,016 interaction records (13,114 unique substance pairs)
 - ~40 ATC drug class keyword mappings
 - Severity distribution: 2,065 Kontraindiziert / 4,731 Schwerwiegend / 12,079 Vorsicht / 21,141 Keine Einstufung
 
