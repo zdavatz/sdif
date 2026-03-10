@@ -8,7 +8,8 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 2. Extracts active substance names from ATC codes (German names)
 3. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
 4. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
-5. Generates `interactions.db` with pre-computed interaction records
+5. Scores severity of each interaction by scanning for German clinical keywords
+6. Generates `interactions.db` with pre-computed interaction records
 
 ### Interaction detection strategies
 
@@ -72,7 +73,7 @@ Generates `db/interactions.db` with the following tables:
 - 1,230 unique substances
 - 40,016 interaction records
 - ~40 ATC drug class keyword mappings
-- Severity distribution: 1,330 Kontraindiziert / 2,965 Schwerwiegend / 10,558 Vorsicht / 25,163 Keine Einstufung
+- Severity distribution: 2,065 Kontraindiziert / 4,731 Schwerwiegend / 12,079 Vorsicht / 21,141 Keine Einstufung
 
 ## Example: Ponstan + Marcoumar + Aspirin
 

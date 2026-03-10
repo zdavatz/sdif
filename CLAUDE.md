@@ -34,7 +34,7 @@ sdif search "QT-Verlängerung" -l 5
 1. Parse ATC column (`"M01AG01;Mefenaminsäure"`) for German substance names
 2. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung"
 3. Aho-Corasick multi-pattern match all known substances against interaction texts
-4. Store substance-level interactions with context snippets
+4. Store substance-level interactions with best-severity context snippets
 
 ### Interaction detection
 - **Substance-level**: Exact substance name match in interaction text (40,016 records)
@@ -44,9 +44,10 @@ sdif search "QT-Verlängerung" -l 5
 
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
+- Context extraction scans **all occurrences** of a substance and picks the snippet with the highest severity
 - 3 = **Kontraindiziert** (`###`): "kontraindiziert", "darf nicht", "nicht angewendet werden"
-- 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "blutungsrisiko", "serotoninsyndrom"
-- 1 = **Vorsicht** (`#`): "vorsicht", "überwach", "dosisanpassung", "verstärkt", "plasmaspiegel"
+- 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "nephrotoxisch", "hepatotoxisch", "abgeraten", "wird nicht empfohlen", "lymphoproliferation"
+- 1 = **Vorsicht** (`#`): "vorsicht", "überwach", "dosisanpassung", "verstärkt", "plasmaspiegel", "subtherapeutisch", "therapieversagen"
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
 ## Database schema (interactions.db)

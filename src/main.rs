@@ -377,6 +377,11 @@ fn score_severity(text: &str) -> (u8, &'static str) {
         "stark verstärkt",
         "toxisch",
         "toxizität",
+        "nephrotoxisch",
+        "hepatotoxisch",
+        "ototoxisch",
+        "neurotoxisch",
+        "kardiotoxisch",
         "tödlich",
         "fatale",
         "blutungsrisiko",
@@ -396,6 +401,12 @@ fn score_severity(text: &str) -> (u8, &'static str) {
         "agranulozytos",
         "stevens-johnson",
         "anaphyla",
+        "lymphoproliferation",
+        "immundepression",
+        "immunsuppression",
+        "panzytopenie",
+        "abgeraten",
+        "wird nicht empfohlen",
     ];
     for kw in &serious {
         if lower.contains(kw) {
@@ -430,6 +441,11 @@ fn score_severity(text: &str) -> (u8, &'static str) {
         "plasmaspiegel",
         "serumkonzentration",
         "bioverfügbarkeit",
+        "subtherapeutisch",
+        "supratherapeutisch",
+        "therapieversagen",
+        "wirkungsverlust",
+        "wirkverlust",
     ];
     for kw in &caution {
         if lower.contains(kw) {
@@ -459,9 +475,16 @@ fn is_common_word(s: &str) -> bool {
     )
 }
 
+/// Extract the most clinically relevant context snippet for a substance mention.
+/// Scans all occurrences in the text and returns the one with the highest severity score.
 fn extract_context(text: &str, substance: &str) -> String {
     let lower = text.to_lowercase();
-    if let Some(pos) = lower.find(substance) {
+    let mut best_snippet = String::new();
+    let mut best_severity: u8 = 0;
+    let mut search_from = 0;
+
+    while let Some(rel_pos) = lower[search_from..].find(substance) {
+        let pos = search_from + rel_pos;
         let start = lower[..pos]
             .rfind(|c: char| c == '.' || c == ':')
             .map(|p| p + 1)
@@ -472,18 +495,29 @@ fn extract_context(text: &str, substance: &str) -> String {
             .unwrap_or(text.len());
 
         let snippet = text[start..end.min(text.len())].trim();
-        if snippet.len() > 500 {
-            let mut trunc = 497;
-            while !snippet.is_char_boundary(trunc) && trunc > 0 {
-                trunc -= 1;
+        let (sev, _) = score_severity(snippet);
+
+        if sev > best_severity || best_snippet.is_empty() {
+            best_severity = sev;
+            best_snippet = if snippet.len() > 500 {
+                let mut trunc = 497;
+                while !snippet.is_char_boundary(trunc) && trunc > 0 {
+                    trunc -= 1;
+                }
+                format!("{}...", &snippet[..trunc])
+            } else {
+                snippet.to_string()
+            };
+            // Can't do better than Kontraindiziert
+            if best_severity >= 3 {
+                break;
             }
-            format!("{}...", &snippet[..trunc])
-        } else {
-            snippet.to_string()
         }
-    } else {
-        String::new()
+
+        search_from = pos + substance.len();
     }
+
+    best_snippet
 }
 
 fn write_interactions_db(
