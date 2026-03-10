@@ -1042,7 +1042,7 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
     for input in basket {
         // Try brand name first, then fall back to substance name
         let mut stmt = conn.prepare(
-            "SELECT brand_name, active_substances, atc_code, atc_class, interactions_text FROM drugs WHERE brand_name LIKE ?1",
+            "SELECT brand_name, active_substances, atc_code, atc_class, interactions_text FROM drugs WHERE brand_name LIKE ?1 ORDER BY length(interactions_text) DESC",
         )?;
         let pattern = format!("%{}%", input);
         let mut rows = stmt.query(params![pattern])?;
@@ -1061,7 +1061,7 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
             let mut stmt2 = conn.prepare(
                 "SELECT DISTINCT d.brand_name, d.active_substances, d.atc_code, d.atc_class, d.interactions_text \
                  FROM substance_brand_map s JOIN drugs d ON d.brand_name = s.brand_name \
-                 WHERE s.substance LIKE ?1 LIMIT 1",
+                 WHERE s.substance LIKE ?1 ORDER BY length(d.interactions_text) DESC LIMIT 1",
             )?;
             let pattern_lower = format!("%{}%", input.to_lowercase());
             let mut rows2 = stmt2.query(params![pattern_lower])?;
@@ -1175,6 +1175,30 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
                     "\nINTERACTION [class-level]: {} <-> {} ({}) | Severity: {} ({})",
+                    b.brand, a.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
+                );
+                println!("  {}", hit.context);
+                found_any = true;
+            }
+
+            // Strategy 3: CYP enzyme interactions
+            // Check if A's text mentions a CYP enzyme and B is a known inhibitor/inducer
+            let cyp_hits_ab = find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances);
+            for hit in &cyp_hits_ab {
+                let (sev_score, sev_label) = score_severity(&hit.context);
+                println!(
+                    "\nINTERACTION [CYP]: {} <-> {} ({}) | Severity: {} ({})",
+                    a.brand, b.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
+                );
+                println!("  {}", hit.context);
+                found_any = true;
+            }
+
+            let cyp_hits_ba = find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances);
+            for hit in &cyp_hits_ba {
+                let (sev_score, sev_label) = score_severity(&hit.context);
+                println!(
+                    "\nINTERACTION [CYP]: {} <-> {} ({}) | Severity: {} ({})",
                     b.brand, a.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
                 );
                 println!("  {}", hit.context);
@@ -1319,6 +1343,101 @@ fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<Class
                     });
                     break; // One hit per ATC prefix is enough
                 }
+            }
+        }
+    }
+
+    hits
+}
+
+/// CYP enzyme interaction detection.
+/// Maps CYP enzymes to known inhibitors and inducers (by ATC prefix or substance name).
+/// When Drug A's interaction text mentions a CYP enzyme, and Drug B is a known
+/// inhibitor/inducer of that enzyme, we flag the interaction.
+fn find_cyp_interactions(interaction_text: &str, other_atc: &str, other_substances: &[String]) -> Vec<ClassHit> {
+    let text_lower = interaction_text.to_lowercase();
+    let mut hits = Vec::new();
+
+    // (CYP enzyme, text patterns to search for, inhibitor ATC prefixes, inhibitor substances, inducer ATC prefixes, inducer substances)
+    let cyp_map: &[(&str, &[&str], &[&str], &[&str], &[&str], &[&str])] = &[
+        ("CYP3A4",
+         &["cyp3a4", "cyp3a"],
+         // Inhibitors: HIV protease inhibitors, azole antifungals, macrolides
+         &["J05AE", "J02A", "J01FA"],
+         &["ritonavir", "cobicistat", "itraconazol", "ketoconazol", "voriconazol",
+           "posaconazol", "fluconazol", "clarithromycin", "erythromycin",
+           "diltiazem", "verapamil", "grapefruit"],
+         // Inducers: rifamycins, antiepileptics
+         &["J04AB", "N03AF", "N03AB"],
+         &["rifampicin", "rifabutin", "carbamazepin", "phenytoin", "phenobarbital",
+           "johanniskraut", "efavirenz", "nevirapin"]),
+        ("CYP2D6",
+         &["cyp2d6"],
+         &[],
+         &["fluoxetin", "paroxetin", "bupropion", "chinidin", "terbinafin",
+           "duloxetin", "ritonavir", "cobicistat"],
+         &[],
+         &["rifampicin"]),
+        ("CYP2C9",
+         &["cyp2c9"],
+         &[],
+         &["fluconazol", "amiodaron", "miconazol", "voriconazol", "fluvoxamin"],
+         &[],
+         &["rifampicin", "carbamazepin", "phenytoin"]),
+        ("CYP2C19",
+         &["cyp2c19"],
+         &[],
+         &["omeprazol", "esomeprazol", "fluvoxamin", "fluconazol", "voriconazol",
+           "ticlopidin"],
+         &[],
+         &["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
+        ("CYP1A2",
+         &["cyp1a2"],
+         &["J01MA"],
+         &["ciprofloxacin", "fluvoxamin", "enoxacin"],
+         &[],
+         &["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
+        ("CYP2C8",
+         &["cyp2c8"],
+         &[],
+         &["gemfibrozil", "clopidogrel", "trimethoprim"],
+         &[],
+         &["rifampicin"]),
+        ("CYP2B6",
+         &["cyp2b6"],
+         &[],
+         &["ticlopidin", "clopidogrel"],
+         &[],
+         &["rifampicin", "efavirenz"]),
+    ];
+
+    let other_subst_lower: Vec<String> = other_substances.iter().map(|s| s.to_lowercase()).collect();
+
+    for &(enzyme, text_patterns, inhib_atc, inhib_subst, induc_atc, induc_subst) in cyp_map {
+        // Check if interaction text mentions this CYP enzyme
+        let mentioned = text_patterns.iter().any(|p| text_lower.contains(p));
+        if !mentioned {
+            continue;
+        }
+
+        // Check if the other drug is a known inhibitor
+        let is_inhibitor = inhib_atc.iter().any(|prefix| other_atc.starts_with(prefix))
+            || inhib_subst.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
+
+        // Check if the other drug is a known inducer
+        let is_inducer = induc_atc.iter().any(|prefix| other_atc.starts_with(prefix))
+            || induc_subst.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
+
+        if is_inhibitor || is_inducer {
+            let role = if is_inhibitor { "Hemmer" } else { "Induktor" };
+            // Find the best context snippet mentioning this CYP enzyme
+            let pattern = text_patterns[0]; // Use primary pattern for context extraction
+            let context = extract_context(interaction_text, pattern);
+            if !context.is_empty() {
+                hits.push(ClassHit {
+                    class_keyword: format!("{}-{}", enzyme, role),
+                    context,
+                });
             }
         }
     }

@@ -18,6 +18,7 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 
 - **Substance-level matching**: Direct lookup — does Drug A's interaction text mention Drug B's active substance?
 - **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist)
+- **CYP enzyme matching**: Detects CYP450-mediated interactions at query time — if Drug A's text mentions a CYP enzyme (e.g. CYP3A4) and Drug B is a known inhibitor or inducer of that enzyme, the interaction is flagged. Covers CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6 with known inhibitors/inducers mapped by ATC prefix and substance name (e.g. Ritonavir ↔ Clobetasol via CYP3A4)
 
 ## Build & Run
 

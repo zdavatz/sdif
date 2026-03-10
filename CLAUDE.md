@@ -40,6 +40,11 @@ sdif search "QT-Verlängerung" -l 5
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
   - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements, SERMs (L02BA), muscle relaxants (M03A), antidotes (V03AB)
+- **CYP enzyme-level**: Detects CYP450-mediated interactions at query time (no extra DB columns)
+  - If Drug A's interaction text mentions a CYP enzyme and Drug B is a known inhibitor/inducer, flags the interaction
+  - Covers: CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6
+  - Inhibitors/inducers mapped by ATC prefix (e.g. J05AE = HIV protease inhibitors) and substance name (e.g. ritonavir, rifampicin)
+  - Basket lookup prefers drug entries with longest interaction text to avoid matching sparse formulations
 
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
