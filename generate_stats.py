@@ -60,7 +60,7 @@ accent = '#0277bd'
 
 fig.suptitle('SDIF - Swiss Drug Interaction Finder',
              fontsize=22, fontweight='bold', color=accent, y=0.96)
-fig.text(0.95, 0.02, today, ha='right', fontsize=10, color=text_color)
+fig.text(0.95, 0.02, timestamp, ha='right', fontsize=10, color=text_color)
 
 # --- Top left: Key metrics ---
 ax1 = fig.add_subplot(gs[0, 0])
