@@ -1104,7 +1104,7 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
         ("C09B", vec!["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
         ("C09C", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
         ("C09D", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
-        ("C07", vec!["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker", "beta-adrenozeptor"]),
+        ("C07", vec!["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker", "β-rezeptorenblocker", "beta-rezeptor", "β-rezeptor", "beta-adrenozeptor"]),
         ("C08", vec!["calciumantagonist", "calciumkanalblocker", "kalziumantagonist", "kalziumkanalblocker", "calcium-antagonist"]),
         ("C03", vec!["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
         ("C03C", vec!["schleifendiuretik", "furosemid", "torasemid"]),
@@ -1418,7 +1418,7 @@ pub fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<C
         ("C09D", &["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
         // C07 = Beta-Blocker
         ("C07", &["beta-blocker", "betablocker", "β-blocker", "betarezeptorenblocker",
-                   "beta-adrenozeptor"]),
+                   "β-rezeptorenblocker", "beta-rezeptor", "β-rezeptor", "beta-adrenozeptor"]),
         // C08 = Calciumkanalblocker
         ("C08", &["calciumantagonist", "calciumkanalblocker", "kalziumantagonist",
                    "kalziumkanalblocker", "calcium-antagonist"]),
