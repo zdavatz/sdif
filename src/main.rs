@@ -276,6 +276,122 @@ fn extract_interactions(drugs: &[Drug]) -> Result<Vec<Interaction>> {
     Ok(interactions)
 }
 
+/// Score interaction severity based on German keywords in the description text.
+/// Returns (numeric_score, label) where score is 0-3:
+///   3 = "Kontraindiziert" — contraindicated, must not combine
+///   2 = "Schwerwiegend"   — serious risk, avoid if possible
+///   1 = "Vorsicht"        — use with caution, monitor
+///   0 = "Keine Einstufung" — no severity keywords found
+fn score_severity(text: &str) -> (u8, &'static str) {
+    let lower = text.to_lowercase();
+
+    // Level 3: Contraindicated
+    let contraindicated = [
+        "kontraindiziert",
+        "kontraindikation",
+        "darf nicht",
+        "nicht angewendet werden",
+        "nicht verabreicht werden",
+        "nicht kombiniert werden",
+        "nicht gleichzeitig",
+        "ist verboten",
+        "absolut kontraindiziert",
+        "streng kontraindiziert",
+        "nicht zusammen",
+        "nicht eingenommen werden",
+        "nicht anwenden",
+    ];
+    for kw in &contraindicated {
+        if lower.contains(kw) {
+            return (3, "Kontraindiziert");
+        }
+    }
+
+    // Level 2: Serious / high risk
+    let serious = [
+        "erhöhtes risiko",
+        "erhöhte gefahr",
+        "schwerwiegend",
+        "schwere",
+        "lebensbedrohlich",
+        "lebensgefährlich",
+        "gefährlich",
+        "stark erhöht",
+        "stark verstärkt",
+        "toxisch",
+        "toxizität",
+        "tödlich",
+        "fatale",
+        "blutungsrisiko",
+        "blutungsgefahr",
+        "serotoninsyndrom",
+        "serotonin-syndrom",
+        "qt-verlängerung",
+        "qt-zeit-verlängerung",
+        "torsade",
+        "rhabdomyolyse",
+        "nierenversagen",
+        "leberversagen",
+        "atemdepression",
+        "herzstillstand",
+        "arrhythmie",
+        "hyperkaliämie",
+        "agranulozytos",
+        "stevens-johnson",
+        "anaphyla",
+    ];
+    for kw in &serious {
+        if lower.contains(kw) {
+            return (2, "Schwerwiegend");
+        }
+    }
+
+    // Level 1: Caution / monitor
+    let caution = [
+        "vorsicht",
+        "überwach",
+        "monitor",
+        "kontroll",
+        "engmaschig",
+        "dosisanpassung",
+        "dosis reduz",
+        "dosis anpassen",
+        "dosisreduktion",
+        "sorgfältig",
+        "regelmässig",
+        "regelmäßig",
+        "aufmerksam",
+        "cave",
+        "beobacht",
+        "verstärkt",
+        "vermindert",
+        "abgeschwächt",
+        "erhöht",
+        "erniedrigt",
+        "beeinflusst",
+        "wechselwirkung",
+        "plasmaspiegel",
+        "serumkonzentration",
+        "bioverfügbarkeit",
+    ];
+    for kw in &caution {
+        if lower.contains(kw) {
+            return (1, "Vorsicht");
+        }
+    }
+
+    (0, "Keine Einstufung")
+}
+
+fn severity_indicator(score: u8) -> &'static str {
+    match score {
+        3 => "###",
+        2 => "##",
+        1 => "#",
+        _ => "-",
+    }
+}
+
 fn is_common_word(s: &str) -> bool {
     matches!(
         s,
@@ -341,7 +457,9 @@ fn write_interactions_db(
             drug_substance TEXT NOT NULL,
             interacting_substance TEXT NOT NULL,
             interacting_brands TEXT,
-            description TEXT NOT NULL
+            description TEXT NOT NULL,
+            severity_score INTEGER NOT NULL DEFAULT 0,
+            severity_label TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX idx_interactions_brand ON interactions(drug_brand);
         CREATE INDEX idx_interactions_substance ON interactions(interacting_substance);
@@ -375,7 +493,7 @@ fn write_interactions_db(
 
     {
         let mut stmt = conn.prepare(
-            "INSERT INTO interactions (drug_brand, drug_substance, interacting_substance, interacting_brands, description) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO interactions (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
         for interaction in interactions {
             let interacting_brands = substance_to_brands
@@ -383,12 +501,16 @@ fn write_interactions_db(
                 .map(|brands| brands.join(", "))
                 .unwrap_or_default();
 
+            let (sev_score, sev_label) = score_severity(&interaction.description);
+
             stmt.execute(params![
                 interaction.drug_title,
                 interaction.drug_substance,
                 interaction.interacting_substance,
                 interacting_brands,
                 interaction.description,
+                sev_score,
+                sev_label,
             ])?;
         }
     }
@@ -459,16 +581,18 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
             // Strategy 1: DB substance match (A's text mentions B's substance)
             for subst in &b.substances {
                 let mut stmt = conn.prepare(
-                    "SELECT description FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
+                    "SELECT description, severity_score, severity_label FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
                 )?;
-                let descs: Vec<String> = stmt
-                    .query_map(params![a.brand, subst], |row| row.get::<_, String>(0))?
+                let rows: Vec<(String, u8, String)> = stmt
+                    .query_map(params![a.brand, subst], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })?
                     .filter_map(|r| r.ok())
                     .collect();
-                for desc in &descs {
+                for (desc, sev_score, sev_label) in &rows {
                     println!(
-                        "\nINTERACTION [substance match]: {} <-> {}",
-                        a.brand, b.brand
+                        "\nINTERACTION [substance match]: {} <-> {} | Severity: {} ({})",
+                        a.brand, b.brand, severity_indicator(*sev_score), sev_label
                     );
                     println!("  Via substance: {}", subst);
                     println!("  {}", desc);
@@ -479,16 +603,18 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
             // Reverse: B's text mentions A's substance
             for subst in &a.substances {
                 let mut stmt = conn.prepare(
-                    "SELECT description FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
+                    "SELECT description, severity_score, severity_label FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
                 )?;
-                let descs: Vec<String> = stmt
-                    .query_map(params![b.brand, subst], |row| row.get::<_, String>(0))?
+                let rows: Vec<(String, u8, String)> = stmt
+                    .query_map(params![b.brand, subst], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })?
                     .filter_map(|r| r.ok())
                     .collect();
-                for desc in &descs {
+                for (desc, sev_score, sev_label) in &rows {
                     println!(
-                        "\nINTERACTION [substance match]: {} <-> {}",
-                        b.brand, a.brand
+                        "\nINTERACTION [substance match]: {} <-> {} | Severity: {} ({})",
+                        b.brand, a.brand, severity_indicator(*sev_score), sev_label
                     );
                     println!("  Via substance: {}", subst);
                     println!("  {}", desc);
@@ -500,9 +626,10 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
             // Search A's interaction text for keywords related to B's drug class
             let class_hits_ab = find_class_interactions(&a.interactions_text, &b.atc_code);
             for hit in &class_hits_ab {
+                let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
-                    "\nINTERACTION [class-level]: {} <-> {} ({})",
-                    a.brand, b.brand, hit.class_keyword
+                    "\nINTERACTION [class-level]: {} <-> {} ({}) | Severity: {} ({})",
+                    a.brand, b.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
                 );
                 println!("  {}", hit.context);
                 found_any = true;
@@ -510,9 +637,10 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
 
             let class_hits_ba = find_class_interactions(&b.interactions_text, &a.atc_code);
             for hit in &class_hits_ba {
+                let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
-                    "\nINTERACTION [class-level]: {} <-> {} ({})",
-                    b.brand, a.brand, hit.class_keyword
+                    "\nINTERACTION [class-level]: {} <-> {} ({}) | Severity: {} ({})",
+                    b.brand, a.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
                 );
                 println!("  {}", hit.context);
                 found_any = true;

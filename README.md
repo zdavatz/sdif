@@ -55,7 +55,7 @@ Running `sdif` without a subcommand defaults to `build`.
 Generates `db/interactions.db` with the following tables:
 
 - **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text
-- **interactions** — pre-computed substance-level interactions with context snippets
+- **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
 - **substance_brand_map** — maps substance names to brand names
 
 ### Stats (as of March 2026)
@@ -64,6 +64,7 @@ Generates `db/interactions.db` with the following tables:
 - 1,230 unique substances
 - 39,500 interaction records
 - ~40 ATC drug class keyword mappings
+- Severity distribution: 1,257 Kontraindiziert / 2,903 Schwerwiegend / 10,412 Vorsicht / 24,928 Keine Einstufung
 
 ## Example: Ponstan + Marcoumar + Aspirin
 
@@ -75,16 +76,21 @@ Basket contents:
   Marcoumar® [B01AA04] -> phenprocoumon
   Aspirin® S [N02BA01] -> acetylsalicylsäure
 
-INTERACTION [class-level]: Ponstan® <-> Marcoumar® (antikoagul)
+INTERACTION [class-level]: Ponstan® <-> Marcoumar® (antikoagul) | Severity: # (Vorsicht)
   Mefenaminsäure verdrängt Warfarin aus dessen Proteinbindung,
   wodurch der gerinnungshemmende Effekt von Antikoagulantien
   vom Warfarin Typ verstärkt wird.
 
-INTERACTION [substance match]: Ponstan® <-> Aspirin® S
+INTERACTION [substance match]: Ponstan® <-> Aspirin® S | Severity: - (Keine Einstufung)
   Via substance: acetylsalicylsäure
   Mefenaminsäure interferiert mit dem Thrombozytenaggregationseffekt
   von niedrig dosierter Acetylsalicylsäure (ASS)...
 
-INTERACTION [class-level]: Aspirin® S <-> Marcoumar® (antikoagul)
+INTERACTION [class-level]: Aspirin® S <-> Ponstan® (entzündungshemm) | Severity: ### (Kontraindiziert)
+  verstärkte Toxizität von Methotrexat...
+
+INTERACTION [class-level]: Aspirin® S <-> Marcoumar® (antikoagul) | Severity: - (Keine Einstufung)
   Verstärkung der Wirkung von Antikoagulantien/Thrombolytika...
+
+Severity levels: ### Kontraindiziert, ## Schwerwiegend, # Vorsicht, - Keine Einstufung
 ```

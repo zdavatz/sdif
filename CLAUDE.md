@@ -37,9 +37,16 @@ sdif check Ponstan Marcoumar Aspirin
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
   - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements
 
+### Severity scoring
+- Keyword-based scoring of interaction descriptions (German text)
+- 3 = **Kontraindiziert** (`###`): "kontraindiziert", "darf nicht", "nicht angewendet werden"
+- 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "blutungsrisiko", "serotoninsyndrom"
+- 1 = **Vorsicht** (`#`): "vorsicht", "überwach", "dosisanpassung", "verstärkt", "plasmaspiegel"
+- 0 = **Keine Einstufung** (`-`): no severity keywords found
+
 ## Database schema (interactions.db)
 - `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text)
-- `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description)
+- `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
 - `substance_brand_map` (substance, brand_name)
 
 ## CLI
