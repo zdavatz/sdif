@@ -72,6 +72,7 @@ fn main() -> Result<()> {
         Some(Commands::Build { download }) => {
             if download {
                 download_source_db(db_path)?;
+                download_atc_csv()?;
             }
             run_build(db_path, output_path)?;
         }
@@ -112,14 +113,72 @@ fn download_source_db(db_path: &str) -> Result<()> {
     Ok(())
 }
 
+fn download_atc_csv() -> Result<()> {
+    let csv_dir = "csv";
+    std::fs::create_dir_all(csv_dir)?;
+
+    let csv_path = format!("{}/atc.csv", csv_dir);
+    let url = "http://pillbox.oddb.org/atc.csv";
+
+    println!("Downloading {}...", url);
+    let status = std::process::Command::new("curl")
+        .args(&["-L", "-o", &csv_path, url])
+        .status()
+        .with_context(|| "Failed to run curl")?;
+    if !status.success() {
+        anyhow::bail!("ATC CSV download failed");
+    }
+
+    println!("ATC CSV ready at {}", csv_path);
+    Ok(())
+}
+
+fn load_atc_csv(path: &str) -> Result<HashMap<String, String>> {
+    let mut map = HashMap::new();
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read ATC CSV: {}", path))?;
+    for line in content.lines().skip(1) {
+        // Format: ATC code,Name,DDD,U,Adm.R,Note
+        // Name may be quoted (contains commas)
+        let code_end = match line.find(',') {
+            Some(pos) => pos,
+            None => continue,
+        };
+        let code = line[..code_end].trim().to_string();
+        if code.is_empty() {
+            continue;
+        }
+        let rest = &line[code_end + 1..];
+        // Extract name (may be quoted)
+        let name = if rest.starts_with('"') {
+            let end = rest[1..].find('"').map(|p| p + 1).unwrap_or(rest.len());
+            rest[1..end].to_string()
+        } else {
+            rest.split(',').next().unwrap_or("").to_string()
+        };
+        map.insert(code, name);
+    }
+    Ok(map)
+}
+
 fn run_build(db_path: &str, output_path: &str) -> Result<()> {
     println!("=== Swiss Drug Interaction Finder (SDIF) ===");
     println!("Reading source database: {}", db_path);
 
+    let atc_csv_path = "csv/atc.csv";
+    let atc_map = if std::path::Path::new(atc_csv_path).exists() {
+        let map = load_atc_csv(atc_csv_path)?;
+        println!("Loaded {} ATC codes from {}", map.len(), atc_csv_path);
+        Some(map)
+    } else {
+        println!("Warning: {} not found, skipping ATC cross-check (run with --download to fetch it)", atc_csv_path);
+        None
+    };
+
     let source = Connection::open(db_path)
         .with_context(|| format!("Failed to open source DB: {}", db_path))?;
 
-    let drugs = parse_all_drugs(&source)?;
+    let drugs = parse_all_drugs(&source, atc_map.as_ref())?;
     println!("Parsed {} drugs", drugs.len());
 
     let substance_to_brands = build_substance_brand_map(&drugs);
@@ -440,7 +499,7 @@ fn extract_substance_name(text: &str) -> String {
     name
 }
 
-fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
+fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>) -> Result<Vec<Drug>> {
     let mut stmt = conn.prepare(
         "SELECT _id, title, atc, atc_class, content FROM amikodb WHERE content IS NOT NULL AND content != ''",
     )?;
@@ -464,6 +523,8 @@ fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
 
     let mut drugs = Vec::new();
     let mut html_fallback_count = 0u32;
+    let mut atc_valid_count = 0u32;
+    let mut atc_invalid_count = 0u32;
     for (idx, (id, title, atc, atc_class, content)) in rows.iter().enumerate() {
         if idx % 500 == 0 {
             eprint!("\r  Parsing drug {}/{}...", idx, rows.len());
@@ -481,6 +542,18 @@ fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
                     if name.len() > 2 {
                         active_substances.push(name);
                     }
+                }
+            }
+        }
+
+        // Cross-check ATC code against official ATC CSV
+        if let Some(ref map) = atc_map {
+            if !atc_code.is_empty() {
+                if map.contains_key(&atc_code) {
+                    atc_valid_count += 1;
+                } else {
+                    atc_invalid_count += 1;
+                    eprintln!("  ATC mismatch: {} not found in atc.csv ({})", atc_code, title.trim());
                 }
             }
         }
@@ -511,6 +584,10 @@ fn parse_all_drugs(conn: &Connection) -> Result<Vec<Drug>> {
     eprintln!("\r  Parsing done.                    ");
     if html_fallback_count > 0 {
         println!("  Extracted substances from HTML for {} drugs (ATC column had no substance name)", html_fallback_count);
+    }
+    if atc_map.is_some() {
+        println!("  ATC cross-check: {} valid, {} invalid",
+            atc_valid_count, atc_invalid_count);
     }
 
     Ok(drugs)

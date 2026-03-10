@@ -7,11 +7,12 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 ## How it works
 
 1. Downloads and reads the AmiKo full-text database (`amiko_db_full_idx_de.db`)
-2. Extracts active substance names from ATC codes (German names), with fallback to the Zusammensetzung/Wirkstoffe HTML section when the ATC column lacks substance names
-3. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
-4. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
-5. Scores severity of each interaction by scanning for German clinical keywords
-6. Generates `interactions.db` with pre-computed interaction records
+2. Downloads the official WHO ATC classification (`csv/atc.csv`) and cross-checks every drug's ATC code against it
+3. Extracts active substance names from ATC codes (German names), with fallback to the Zusammensetzung/Wirkstoffe HTML section when the ATC column lacks substance names
+4. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
+5. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
+6. Scores severity of each interaction by scanning for German clinical keywords
+7. Generates `interactions.db` with pre-computed interaction records
 
 ### Interaction detection strategies
 
@@ -23,7 +24,7 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 ```bash
 cargo build --release
 
-# Download source DB and build interactions database (first time)
+# Download source DB + ATC CSV and build interactions database (first time)
 sdif build --download
 
 # Rebuild without downloading (subsequent runs)

@@ -25,13 +25,15 @@ sdif search "QT-Verlängerung" -l 5
 ## Architecture
 - **Source**: `src/main.rs` (single-file for now)
 - **Input**: `db/amiko_db_full_idx_de.db` — AmiKo full-text DB with 4,564 drug entries
+- **Input**: `csv/atc.csv` — WHO ATC classification (downloaded from pillbox.oddb.org), used to cross-check ATC codes
 - **Output**: `db/interactions.db` — pre-computed interactions DB
 
 ### Key data flow
 1. Parse ATC column (`"M01AG01;Mefenaminsäure"`) for German substance names; fallback to Zusammensetzung/Wirkstoffe HTML section when ATC column has code but no substance name
-2. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung"
-3. Aho-Corasick multi-pattern match all known substances against interaction texts
-4. Store substance-level interactions with best-severity context snippets
+2. Cross-check ATC codes against `csv/atc.csv` (all levels: 1-digit to 7-digit); log mismatches (e.g. reclassified L01XX→L01E codes)
+3. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung"
+4. Aho-Corasick multi-pattern match all known substances against interaction texts
+5. Store substance-level interactions with best-severity context snippets
 
 ### Interaction detection
 - **Substance-level**: Exact substance name match in interaction text (57,301 records, 21,695 unique substance pairs)
@@ -53,7 +55,7 @@ sdif search "QT-Verlängerung" -l 5
 - `substance_brand_map` (substance, brand_name)
 
 ## CLI
-- `sdif build [--download]` — (re)build interactions.db; `--download` fetches AmiKo source DB first
+- `sdif build [--download]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV first
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, default limit 20
 
