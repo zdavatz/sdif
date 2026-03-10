@@ -2,6 +2,8 @@
 
 A Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database. It extracts interaction data from drug labels (Fachinformation) and enables basket-based interaction checking between drugs. Supports input by brand name or substance name.
 
+![SDIF Stats](sdif_swiss_drug_interactions_finder_stats_10.03.2026.png)
+
 ## How it works
 
 1. Downloads and reads the AmiKo full-text database (`amiko_db_full_idx_de.db`)

@@ -60,5 +60,9 @@ sdif search "QT-Verlängerung" -l 5
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, default limit 20
 
+## Stats image
+- `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_dd.mm.yyyy.png`
+- Requires matplotlib; embedded in README.md
+
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`
