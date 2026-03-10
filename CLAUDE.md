@@ -5,15 +5,12 @@ Rust tool that builds a searchable drug interactions SQLite database from the Am
 
 ## Build & Run
 ```bash
-# Download source DB (one-time)
-mkdir -p db && cd db
-curl -L -o amiko_db_full_idx_de.zip "http://pillbox.oddb.org/amiko_db_full_idx_de.zip"
-unzip -o amiko_db_full_idx_de.zip && cd ..
-
-# Build
 cargo build --release
 
-# Build interactions DB
+# Download source DB and build (first time)
+sdif build --download
+
+# Rebuild without downloading
 sdif build
 
 # Check drug interactions (brand names or substance names)
@@ -56,7 +53,7 @@ sdif search "QT-Verlängerung" -l 5
 - `substance_brand_map` (substance, brand_name)
 
 ## CLI
-- `sdif build` — (re)build interactions.db from AmiKo source (default when no subcommand)
+- `sdif build [--download]` — (re)build interactions.db; `--download` fetches AmiKo source DB first
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, default limit 20
 

@@ -18,21 +18,15 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 - **Substance-level matching**: Direct lookup — does Drug A's interaction text mention Drug B's active substance?
 - **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist)
 
-## Setup
-
-```bash
-# Download the source database
-mkdir -p db
-curl -L -o db/amiko_db_full_idx_de.zip "http://pillbox.oddb.org/amiko_db_full_idx_de.zip"
-unzip -o db/amiko_db_full_idx_de.zip -d db/
-```
-
 ## Build & Run
 
 ```bash
 cargo build --release
 
-# Build the interactions database
+# Download source DB and build interactions database (first time)
+sdif build --download
+
+# Rebuild without downloading (subsequent runs)
 sdif build
 
 # Check interactions between drugs (brand names or substance names)
@@ -52,7 +46,7 @@ Swiss Drug Interaction Finder
 Usage: sdif [COMMAND]
 
 Commands:
-  build   Build the interactions database from the AmiKo source DB
+  build   Build the interactions database (--download to fetch source DB)
   check   Check interactions between drugs in a basket
   search  Search interactions by clinical term
 ```

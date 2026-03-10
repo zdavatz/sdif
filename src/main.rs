@@ -15,7 +15,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Build the interactions database from the AmiKo source DB
-    Build,
+    Build {
+        /// Download the AmiKo source database before building
+        #[arg(long)]
+        download: bool,
+    },
     /// Check interactions between drugs in a basket
     Check {
         /// Brand names or substance names of drugs to check (e.g. Ponstan Marcoumar Aspirin)
@@ -65,63 +69,104 @@ fn main() -> Result<()> {
         Some(Commands::Search { term, limit }) => {
             search_interactions(output_path, &term, limit)?;
         }
-        Some(Commands::Build) | None => {
-            println!("=== Swiss Drug Interaction Finder (SDIF) ===");
-            println!("Reading source database: {}", db_path);
-
-            let source = Connection::open(db_path)
-                .with_context(|| format!("Failed to open source DB: {}", db_path))?;
-
-            let drugs = parse_all_drugs(&source)?;
-            println!("Parsed {} drugs", drugs.len());
-
-            let substance_to_brands = build_substance_brand_map(&drugs);
-            println!(
-                "Built substance-to-brand map with {} substances",
-                substance_to_brands.len()
-            );
-
-            let interactions = extract_interactions(&drugs)?;
-            println!("Extracted {} interaction records", interactions.len());
-
-            write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands)?;
-            println!("Wrote interactions database to: {}", output_path);
-
-            // Severity stats
-            let mut sev_counts = [0u32; 4];
-            for interaction in &interactions {
-                let (score, _) = score_severity(&interaction.description);
-                sev_counts[score as usize] += 1;
+        Some(Commands::Build { download }) => {
+            if download {
+                download_source_db(db_path)?;
             }
-            let classified = interactions.len() as u32 - sev_counts[0];
-            let pct = if interactions.is_empty() { 0 } else {
-                (classified as f64 / interactions.len() as f64 * 100.0) as u32
-            };
-
-            let drugs_with_interactions = drugs.iter().filter(|d| !d.interactions_text.is_empty()).count();
-
-            let unique_pairs: HashSet<(&str, &str)> = interactions
-                .iter()
-                .map(|i| {
-                    let a = i.drug_substance.as_str();
-                    let b = i.interacting_substance.as_str();
-                    if a <= b { (a, b) } else { (b, a) }
-                })
-                .collect();
-
-            println!("\n--- Build Statistics ---");
-            println!("  Drugs total:         {}", drugs.len());
-            println!("  With interactions:   {}", drugs_with_interactions);
-            println!("  Unique substances:   {}", substance_to_brands.len());
-            println!("  Interaction records: {} ({} unique substance pairs)", interactions.len(), unique_pairs.len());
-            println!("  Severity breakdown:");
-            println!("    ### Kontraindiziert:  {:>6}", sev_counts[3]);
-            println!("    ##  Schwerwiegend:    {:>6}", sev_counts[2]);
-            println!("    #   Vorsicht:         {:>6}", sev_counts[1]);
-            println!("    -   Keine Einstufung: {:>6}", sev_counts[0]);
-            println!("  Classified: {}%", pct);
+            run_build(db_path, output_path)?;
+        }
+        None => {
+            run_build(db_path, output_path)?;
         }
     }
+
+    Ok(())
+}
+
+fn download_source_db(db_path: &str) -> Result<()> {
+    let db_dir = std::path::Path::new(db_path).parent().unwrap_or(std::path::Path::new("."));
+    std::fs::create_dir_all(db_dir)?;
+
+    let zip_path = db_dir.join("amiko_db_full_idx_de.zip");
+    let url = "http://pillbox.oddb.org/amiko_db_full_idx_de.zip";
+
+    println!("Downloading {}...", url);
+    let status = std::process::Command::new("curl")
+        .args(&["-L", "-o", zip_path.to_str().unwrap(), url])
+        .status()
+        .with_context(|| "Failed to run curl")?;
+    if !status.success() {
+        anyhow::bail!("Download failed");
+    }
+
+    println!("Extracting to {}...", db_dir.display());
+    let status = std::process::Command::new("unzip")
+        .args(&["-o", zip_path.to_str().unwrap(), "-d", db_dir.to_str().unwrap()])
+        .status()
+        .with_context(|| "Failed to run unzip")?;
+    if !status.success() {
+        anyhow::bail!("Extraction failed");
+    }
+
+    println!("Source database ready.");
+    Ok(())
+}
+
+fn run_build(db_path: &str, output_path: &str) -> Result<()> {
+    println!("=== Swiss Drug Interaction Finder (SDIF) ===");
+    println!("Reading source database: {}", db_path);
+
+    let source = Connection::open(db_path)
+        .with_context(|| format!("Failed to open source DB: {}", db_path))?;
+
+    let drugs = parse_all_drugs(&source)?;
+    println!("Parsed {} drugs", drugs.len());
+
+    let substance_to_brands = build_substance_brand_map(&drugs);
+    println!(
+        "Built substance-to-brand map with {} substances",
+        substance_to_brands.len()
+    );
+
+    let interactions = extract_interactions(&drugs)?;
+    println!("Extracted {} interaction records", interactions.len());
+
+    write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands)?;
+    println!("Wrote interactions database to: {}", output_path);
+
+    // Severity stats
+    let mut sev_counts = [0u32; 4];
+    for interaction in &interactions {
+        let (score, _) = score_severity(&interaction.description);
+        sev_counts[score as usize] += 1;
+    }
+    let classified = interactions.len() as u32 - sev_counts[0];
+    let pct = if interactions.is_empty() { 0 } else {
+        (classified as f64 / interactions.len() as f64 * 100.0) as u32
+    };
+
+    let drugs_with_interactions = drugs.iter().filter(|d| !d.interactions_text.is_empty()).count();
+
+    let unique_pairs: HashSet<(&str, &str)> = interactions
+        .iter()
+        .map(|i| {
+            let a = i.drug_substance.as_str();
+            let b = i.interacting_substance.as_str();
+            if a <= b { (a, b) } else { (b, a) }
+        })
+        .collect();
+
+    println!("\n--- Build Statistics ---");
+    println!("  Drugs total:         {}", drugs.len());
+    println!("  With interactions:   {}", drugs_with_interactions);
+    println!("  Unique substances:   {}", substance_to_brands.len());
+    println!("  Interaction records: {} ({} unique substance pairs)", interactions.len(), unique_pairs.len());
+    println!("  Severity breakdown:");
+    println!("    ### Kontraindiziert:  {:>6}", sev_counts[3]);
+    println!("    ##  Schwerwiegend:    {:>6}", sev_counts[2]);
+    println!("    #   Vorsicht:         {:>6}", sev_counts[1]);
+    println!("    -   Keine Einstufung: {:>6}", sev_counts[0]);
+    println!("  Classified: {}%", pct);
 
     Ok(())
 }
