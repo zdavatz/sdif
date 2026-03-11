@@ -17,8 +17,8 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 ### Interaction detection strategies
 
 - **Substance-level matching**: Direct lookup — does Drug A's interaction text mention Drug B's active substance?
-- **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist). Keywords are maintained in [`txt/keywords.txt`](txt/keywords.txt) and embedded at compile time.
-- **CYP enzyme matching**: Detects CYP450-mediated interactions at query time — if Drug A's text mentions a CYP enzyme (e.g. CYP3A4) and Drug B is a known inhibitor or inducer of that enzyme, the interaction is flagged. Covers CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6 with known inhibitors/inducers mapped by ATC prefix and substance name (e.g. Ritonavir ↔ Clobetasol via CYP3A4)
+- **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist). Keywords are maintained in [`txt/keywords.txt`](txt/keywords.txt) and stored in the `class_keywords` table during build for use by external apps.
+- **CYP enzyme matching**: Detects CYP450-mediated interactions at query time — if Drug A's text mentions a CYP enzyme (e.g. CYP3A4) and Drug B is a known inhibitor or inducer of that enzyme, the interaction is flagged. Covers CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6 with known inhibitors/inducers mapped by ATC prefix and substance name (e.g. Ritonavir ↔ Clobetasol via CYP3A4). Rules are stored in the `cyp_rules` table during build.
 - **EPha curated interactions** (opt-in via `--epha`): 9,133 unique ATC-pair interactions from the EPha.ch database with professional 5-level risk grading (A = keine Massnahmen, B = Vorsichtsmassnahmen, C = Überwachung, D = Kombination vermeiden, X = Kontraindiziert). Includes structured effect descriptions, mechanisms, and recommended measures. Stored in a separate `epha_interactions` table — backward-compatible with existing tools
 
 ## Build & Run
@@ -71,6 +71,8 @@ Generates `db/interactions.db` with the following tables:
 - **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
 - **substance_brand_map** — maps substance names to brand names
 - **epha_interactions** — EPha curated ATC-pair interactions with risk class, effect, mechanism, and measures
+- **class_keywords** — ATC class keywords for class-level interaction detection (atc_prefix, keyword)
+- **cyp_rules** — CYP450 inhibitor/inducer rules for enzyme-mediated interaction detection (enzyme, text_pattern, role, atc_prefix, substance)
 
 ### Stats
 

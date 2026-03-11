@@ -42,10 +42,10 @@ sdif search "QT-Verlängerung" -l 5
 ### Interaction detection
 - **Substance-level**: Exact substance name match in interaction text (46,887 records, 17,504 unique substance pairs)
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
-  - Keywords defined in `txt/keywords.txt` (loaded at compile time via `include_str!`)
+  - Keywords defined in `txt/keywords.txt` and stored in `class_keywords` table during build
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
   - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements, SERMs (L02BA), muscle relaxants (M03A), antidotes (V03AB)
-- **CYP enzyme-level**: Detects CYP450-mediated interactions at query time (no extra DB columns)
+- **CYP enzyme-level**: Detects CYP450-mediated interactions at query time via `cyp_rules` table
   - If Drug A's interaction text mentions a CYP enzyme and Drug B is a known inhibitor/inducer, flags the interaction
   - Covers: CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6
   - Inhibitors/inducers mapped by ATC prefix (e.g. J05AE = HIV protease inhibitors) and substance name (e.g. ritonavir, rifampicin)
@@ -69,6 +69,8 @@ sdif search "QT-Verlängerung" -l 5
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
 - `substance_brand_map` (substance, brand_name)
 - `epha_interactions` (atc1, atc2, risk_class, risk_label, effect, mechanism, measures, title, severity_score) — EPha curated data, queried by ATC pair
+- `class_keywords` (atc_prefix, keyword) — ATC class keywords for class-level interaction detection, populated from `txt/keywords.txt` during build
+- `cyp_rules` (enzyme, text_pattern, role, atc_prefix, substance) — CYP450 inhibitor/inducer rules for enzyme-mediated interaction detection, populated during build
 
 ## CLI
 - `sdif build [--download] [--publish]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV + EPha CSV first; `--publish` deploys interactions.db to pillbox.oddb.org via scp

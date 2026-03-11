@@ -1107,6 +1107,22 @@ fn write_interactions_db(
         CREATE INDEX idx_epha_atc1 ON epha_interactions(atc1);
         CREATE INDEX idx_epha_atc2 ON epha_interactions(atc2);
         CREATE INDEX idx_epha_pair ON epha_interactions(atc1, atc2);
+
+        CREATE TABLE class_keywords (
+            atc_prefix TEXT NOT NULL,
+            keyword TEXT NOT NULL
+        );
+        CREATE INDEX idx_class_kw_prefix ON class_keywords(atc_prefix);
+
+        CREATE TABLE cyp_rules (
+            enzyme TEXT NOT NULL,
+            text_pattern TEXT NOT NULL,
+            role TEXT NOT NULL,
+            atc_prefix TEXT,
+            substance TEXT
+        );
+        CREATE INDEX idx_cyp_enzyme ON cyp_rules(enzyme);
+        CREATE INDEX idx_cyp_role ON cyp_rules(role);
         ",
     )?;
 
@@ -1179,6 +1195,45 @@ fn write_interactions_db(
                 epha.title,
                 epha.severity_score,
             ])?;
+        }
+    }
+
+    // Insert class keywords from keywords.txt
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO class_keywords (atc_prefix, keyword) VALUES (?1, ?2)",
+        )?;
+        for (prefix, keywords) in parse_class_keywords() {
+            for keyword in &keywords {
+                stmt.execute(params![prefix, keyword])?;
+            }
+        }
+    }
+
+    // Insert CYP rules
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO cyp_rules (enzyme, text_pattern, role, atc_prefix, substance) VALUES (?1, ?2, ?3, ?4, ?5)",
+        )?;
+        for (enzyme, text_patterns, inhib_atc, inhib_subst, induc_atc, induc_subst) in cyp_rule_data() {
+            for pattern in &text_patterns {
+                // Inhibitor ATC prefixes
+                for atc in &inhib_atc {
+                    stmt.execute(params![enzyme, pattern, "inhibitor", atc, Option::<&str>::None])?;
+                }
+                // Inhibitor substances
+                for subst in &inhib_subst {
+                    stmt.execute(params![enzyme, pattern, "inhibitor", Option::<&str>::None, subst])?;
+                }
+                // Inducer ATC prefixes
+                for atc in &induc_atc {
+                    stmt.execute(params![enzyme, pattern, "inducer", atc, Option::<&str>::None])?;
+                }
+                // Inducer substances
+                for subst in &induc_subst {
+                    stmt.execute(params![enzyme, pattern, "inducer", Option::<&str>::None, subst])?;
+                }
+            }
         }
     }
 
@@ -1318,7 +1373,7 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
     let total = drugs.len();
     eprintln!("Scanning {} drugs for class-level interactions...", total);
 
-    let class_keywords = parse_class_keywords();
+    let class_keywords = load_class_keywords(&conn);
 
     // For each ATC class, count: how many drugs belong to it, how many OTHER drugs mention its keywords
     // Then show unique substance-pair level class interactions
@@ -1455,6 +1510,10 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
         );
     }
 
+    // Load detection rules once from DB
+    let class_keywords = load_class_keywords(&conn);
+    let cyp_rules = load_cyp_rules(&conn);
+
     // Check all pairs
     let mut found_any = false;
     for i in 0..basket_drugs.len() {
@@ -1508,7 +1567,7 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
 
             // Strategy 2: Full-text search for class-level interactions
             // Search A's interaction text for keywords related to B's drug class
-            let class_hits_ab = find_class_interactions(&a.interactions_text, &b.atc_code);
+            let class_hits_ab = find_class_interactions(&a.interactions_text, &b.atc_code, &class_keywords);
             for hit in &class_hits_ab {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
@@ -1519,7 +1578,7 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 found_any = true;
             }
 
-            let class_hits_ba = find_class_interactions(&b.interactions_text, &a.atc_code);
+            let class_hits_ba = find_class_interactions(&b.interactions_text, &a.atc_code, &class_keywords);
             for hit in &class_hits_ba {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
@@ -1532,7 +1591,7 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
 
             // Strategy 3: CYP enzyme interactions
             // Check if A's text mentions a CYP enzyme and B is a known inhibitor/inducer
-            let cyp_hits_ab = find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances);
+            let cyp_hits_ab = find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances, &cyp_rules);
             for hit in &cyp_hits_ab {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
@@ -1543,7 +1602,7 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 found_any = true;
             }
 
-            let cyp_hits_ba = find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances);
+            let cyp_hits_ba = find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules);
             for hit in &cyp_hits_ba {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
@@ -1600,8 +1659,7 @@ pub struct ClassHit {
 }
 
 /// Parse ATC class keywords from txt/keywords.txt (embedded at compile time).
-/// Format: ATC_PREFIX\tkeyword1, keyword2, ...
-/// Lines starting with # and empty lines are skipped.
+/// Used during build to populate the class_keywords table.
 fn parse_class_keywords() -> Vec<(String, Vec<String>)> {
     let raw = include_str!("../txt/keywords.txt");
     let mut result = Vec::new();
@@ -1618,15 +1676,155 @@ fn parse_class_keywords() -> Vec<(String, Vec<String>)> {
     result
 }
 
+/// CYP rule data used during build to populate the cyp_rules table.
+/// Returns (enzyme, text_patterns, inhibitor_atc, inhibitor_substances, inducer_atc, inducer_substances).
+fn cyp_rule_data() -> Vec<(&'static str, Vec<&'static str>, Vec<&'static str>, Vec<&'static str>, Vec<&'static str>, Vec<&'static str>)> {
+    vec![
+        ("CYP3A4",
+         vec!["cyp3a4", "cyp3a"],
+         vec!["J05AE", "J02A", "J01FA"],
+         vec!["ritonavir", "cobicistat", "itraconazol", "ketoconazol", "voriconazol",
+              "posaconazol", "fluconazol", "clarithromycin", "erythromycin",
+              "diltiazem", "verapamil", "grapefruit"],
+         vec!["J04AB", "N03AF", "N03AB"],
+         vec!["rifampicin", "rifabutin", "carbamazepin", "phenytoin", "phenobarbital",
+              "johanniskraut", "efavirenz", "nevirapin"]),
+        ("CYP2D6",
+         vec!["cyp2d6"],
+         vec![],
+         vec!["fluoxetin", "paroxetin", "bupropion", "chinidin", "terbinafin",
+              "duloxetin", "ritonavir", "cobicistat"],
+         vec![],
+         vec!["rifampicin"]),
+        ("CYP2C9",
+         vec!["cyp2c9"],
+         vec![],
+         vec!["fluconazol", "amiodaron", "miconazol", "voriconazol", "fluvoxamin"],
+         vec![],
+         vec!["rifampicin", "carbamazepin", "phenytoin"]),
+        ("CYP2C19",
+         vec!["cyp2c19"],
+         vec![],
+         vec!["omeprazol", "esomeprazol", "fluvoxamin", "fluconazol", "voriconazol",
+              "ticlopidin"],
+         vec![],
+         vec!["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
+        ("CYP1A2",
+         vec!["cyp1a2"],
+         vec!["J01MA"],
+         vec!["ciprofloxacin", "fluvoxamin", "enoxacin"],
+         vec![],
+         vec!["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
+        ("CYP2C8",
+         vec!["cyp2c8"],
+         vec![],
+         vec!["gemfibrozil", "clopidogrel", "trimethoprim"],
+         vec![],
+         vec!["rifampicin"]),
+        ("CYP2B6",
+         vec!["cyp2b6"],
+         vec![],
+         vec!["ticlopidin", "clopidogrel"],
+         vec![],
+         vec!["rifampicin", "efavirenz"]),
+    ]
+}
+
+/// Load class keywords from the interactions DB.
+pub fn load_class_keywords(conn: &Connection) -> Vec<(String, Vec<String>)> {
+    let mut stmt = conn
+        .prepare("SELECT atc_prefix, keyword FROM class_keywords ORDER BY atc_prefix")
+        .expect("class_keywords table missing");
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("failed to query class_keywords")
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut map: Vec<(String, Vec<String>)> = Vec::new();
+    for (prefix, keyword) in rows {
+        if let Some(last) = map.last_mut() {
+            if last.0 == prefix {
+                last.1.push(keyword);
+                continue;
+            }
+        }
+        map.push((prefix, vec![keyword]));
+    }
+    map
+}
+
+/// CYP rule loaded from the DB, grouped by enzyme.
+pub struct CypRule {
+    pub enzyme: String,
+    pub text_patterns: Vec<String>,
+    pub inhibitor_atc: Vec<String>,
+    pub inhibitor_substances: Vec<String>,
+    pub inducer_atc: Vec<String>,
+    pub inducer_substances: Vec<String>,
+}
+
+/// Load CYP rules from the interactions DB.
+pub fn load_cyp_rules(conn: &Connection) -> Vec<CypRule> {
+    let mut stmt = conn
+        .prepare("SELECT enzyme, text_pattern, role, atc_prefix, substance FROM cyp_rules ORDER BY enzyme")
+        .expect("cyp_rules table missing");
+    let rows: Vec<(String, String, String, Option<String>, Option<String>)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .expect("failed to query cyp_rules")
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut map: HashMap<String, CypRule> = HashMap::new();
+    for (enzyme, text_pattern, role, atc_prefix, substance) in rows {
+        let rule = map.entry(enzyme.clone()).or_insert_with(|| CypRule {
+            enzyme,
+            text_patterns: Vec::new(),
+            inhibitor_atc: Vec::new(),
+            inhibitor_substances: Vec::new(),
+            inducer_atc: Vec::new(),
+            inducer_substances: Vec::new(),
+        });
+        if !rule.text_patterns.contains(&text_pattern) {
+            rule.text_patterns.push(text_pattern);
+        }
+        match role.as_str() {
+            "inhibitor" => {
+                if let Some(atc) = atc_prefix {
+                    if !rule.inhibitor_atc.contains(&atc) {
+                        rule.inhibitor_atc.push(atc);
+                    }
+                }
+                if let Some(subst) = substance {
+                    if !rule.inhibitor_substances.contains(&subst) {
+                        rule.inhibitor_substances.push(subst);
+                    }
+                }
+            }
+            "inducer" => {
+                if let Some(atc) = atc_prefix {
+                    if !rule.inducer_atc.contains(&atc) {
+                        rule.inducer_atc.push(atc);
+                    }
+                }
+                if let Some(subst) = substance {
+                    if !rule.inducer_substances.contains(&subst) {
+                        rule.inducer_substances.push(subst);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    map.into_values().collect()
+}
+
 /// Search a drug's interaction text for class-level keywords that match the other drug.
-/// Maps ATC classes to keywords that appear in interaction texts.
-pub fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<ClassHit> {
+pub fn find_class_interactions(interaction_text: &str, other_atc: &str, class_keywords: &[(String, Vec<String>)]) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 
-    let class_keywords = parse_class_keywords();
-
-    for (atc_prefix, keywords) in &class_keywords {
+    for (atc_prefix, keywords) in class_keywords {
         if !other_atc.starts_with(atc_prefix.as_str()) {
             continue;
         }
@@ -1648,92 +1846,35 @@ pub fn find_class_interactions(interaction_text: &str, other_atc: &str) -> Vec<C
     hits
 }
 
-/// CYP enzyme interaction detection.
-/// Maps CYP enzymes to known inhibitors and inducers (by ATC prefix or substance name).
-/// When Drug A's interaction text mentions a CYP enzyme, and Drug B is a known
-/// inhibitor/inducer of that enzyme, we flag the interaction.
-pub fn find_cyp_interactions(interaction_text: &str, other_atc: &str, other_substances: &[String]) -> Vec<ClassHit> {
+/// CYP enzyme interaction detection using pre-loaded rules from the DB.
+pub fn find_cyp_interactions(interaction_text: &str, other_atc: &str, other_substances: &[String], cyp_rules: &[CypRule]) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 
-    // (CYP enzyme, text patterns to search for, inhibitor ATC prefixes, inhibitor substances, inducer ATC prefixes, inducer substances)
-    let cyp_map: &[(&str, &[&str], &[&str], &[&str], &[&str], &[&str])] = &[
-        ("CYP3A4",
-         &["cyp3a4", "cyp3a"],
-         // Inhibitors: HIV protease inhibitors, azole antifungals, macrolides
-         &["J05AE", "J02A", "J01FA"],
-         &["ritonavir", "cobicistat", "itraconazol", "ketoconazol", "voriconazol",
-           "posaconazol", "fluconazol", "clarithromycin", "erythromycin",
-           "diltiazem", "verapamil", "grapefruit"],
-         // Inducers: rifamycins, antiepileptics
-         &["J04AB", "N03AF", "N03AB"],
-         &["rifampicin", "rifabutin", "carbamazepin", "phenytoin", "phenobarbital",
-           "johanniskraut", "efavirenz", "nevirapin"]),
-        ("CYP2D6",
-         &["cyp2d6"],
-         &[],
-         &["fluoxetin", "paroxetin", "bupropion", "chinidin", "terbinafin",
-           "duloxetin", "ritonavir", "cobicistat"],
-         &[],
-         &["rifampicin"]),
-        ("CYP2C9",
-         &["cyp2c9"],
-         &[],
-         &["fluconazol", "amiodaron", "miconazol", "voriconazol", "fluvoxamin"],
-         &[],
-         &["rifampicin", "carbamazepin", "phenytoin"]),
-        ("CYP2C19",
-         &["cyp2c19"],
-         &[],
-         &["omeprazol", "esomeprazol", "fluvoxamin", "fluconazol", "voriconazol",
-           "ticlopidin"],
-         &[],
-         &["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
-        ("CYP1A2",
-         &["cyp1a2"],
-         &["J01MA"],
-         &["ciprofloxacin", "fluvoxamin", "enoxacin"],
-         &[],
-         &["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
-        ("CYP2C8",
-         &["cyp2c8"],
-         &[],
-         &["gemfibrozil", "clopidogrel", "trimethoprim"],
-         &[],
-         &["rifampicin"]),
-        ("CYP2B6",
-         &["cyp2b6"],
-         &[],
-         &["ticlopidin", "clopidogrel"],
-         &[],
-         &["rifampicin", "efavirenz"]),
-    ];
-
     let other_subst_lower: Vec<String> = other_substances.iter().map(|s| s.to_lowercase()).collect();
 
-    for &(enzyme, text_patterns, inhib_atc, inhib_subst, induc_atc, induc_subst) in cyp_map {
+    for rule in cyp_rules {
         // Check if interaction text mentions this CYP enzyme
-        let mentioned = text_patterns.iter().any(|p| text_lower.contains(p));
+        let mentioned = rule.text_patterns.iter().any(|p| text_lower.contains(p.as_str()));
         if !mentioned {
             continue;
         }
 
         // Check if the other drug is a known inhibitor
-        let is_inhibitor = inhib_atc.iter().any(|prefix| other_atc.starts_with(prefix))
-            || inhib_subst.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
+        let is_inhibitor = rule.inhibitor_atc.iter().any(|prefix| other_atc.starts_with(prefix.as_str()))
+            || rule.inhibitor_substances.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
 
         // Check if the other drug is a known inducer
-        let is_inducer = induc_atc.iter().any(|prefix| other_atc.starts_with(prefix))
-            || induc_subst.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
+        let is_inducer = rule.inducer_atc.iter().any(|prefix| other_atc.starts_with(prefix.as_str()))
+            || rule.inducer_substances.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
 
         if is_inhibitor || is_inducer {
             let role = if is_inhibitor { "Hemmer" } else { "Induktor" };
-            // Find the best context snippet mentioning this CYP enzyme
-            let pattern = text_patterns[0]; // Use primary pattern for context extraction
+            let pattern = &rule.text_patterns[0];
             let context = extract_context(interaction_text, pattern);
             if !context.is_empty() {
                 hits.push(ClassHit {
-                    class_keyword: format!("{}-{}", enzyme, role),
+                    class_keyword: format!("{}-{}", rule.enzyme, role),
                     context,
                 });
             }

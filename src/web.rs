@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::{find_class_interactions, find_cyp_interactions, score_severity, severity_indicator};
+use crate::{find_class_interactions, find_cyp_interactions, load_class_keywords, load_cyp_rules, score_severity, severity_indicator};
 
 struct AppState {
     db_path: String,
@@ -258,6 +258,9 @@ async fn check_interactions(
             })
             .collect();
 
+        let class_keywords = load_class_keywords(&conn);
+        let cyp_rules = load_cyp_rules(&conn);
+
         let mut interactions = Vec::new();
 
         for i in 0..basket_drugs.len() {
@@ -324,7 +327,7 @@ async fn check_interactions(
                 }
 
                 // Strategy 2: Class-level
-                for hit in find_class_interactions(&a.interactions_text, &b.atc_code) {
+                for hit in find_class_interactions(&a.interactions_text, &b.atc_code, &class_keywords) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
                     let class_desc = atc_class_description_for_code(&b.atc_code);
                     interactions.push(InteractionResult {
@@ -343,7 +346,7 @@ async fn check_interactions(
                         source: fi_source.clone(),
                     });
                 }
-                for hit in find_class_interactions(&b.interactions_text, &a.atc_code) {
+                for hit in find_class_interactions(&b.interactions_text, &a.atc_code, &class_keywords) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
                     let class_desc = atc_class_description_for_code(&a.atc_code);
                     interactions.push(InteractionResult {
@@ -364,7 +367,7 @@ async fn check_interactions(
                 }
 
                 // Strategy 3: CYP
-                for hit in find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances) {
+                for hit in find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances, &cyp_rules) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
                     interactions.push(InteractionResult {
                         drug_a: a.brand.clone(),
@@ -382,7 +385,7 @@ async fn check_interactions(
                         source: fi_source.clone(),
                     });
                 }
-                for hit in find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances) {
+                for hit in find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules) {
                     let (sev_score, sev_label) = score_severity(&hit.context);
                     interactions.push(InteractionResult {
                         drug_a: b.brand.clone(),
@@ -881,60 +884,11 @@ async fn class_interactions_api(
             .filter(|d| !d.atc.is_empty() && !d.text.is_empty())
             .collect();
 
-        let class_keywords: Vec<(&str, Vec<&str>)> = vec![
-            ("B01A", vec!["antikoagul", "warfarin", "cumarin", "coumarin", "vitamin-k-antagonist",
-                        "vitamin k antagonist", "blutgerinnungshemm", "thrombozytenaggregationshemm",
-                        "plättchenhemm", "antithrombotisch", "heparin", "thrombin-hemm",
-                        "faktor-xa", "direktes orales antikoagulans", "doak"]),
-            ("B01AC", vec!["thrombozytenaggregationshemm", "plättchenhemm", "thrombocytenaggregation"]),
-            ("M01A", vec!["nsar", "nsaid", "nichtsteroidale antiphlogistika", "antiphlogistika",
-                        "nichtsteroidale antirheumatika", "cox-2", "cox-hemmer", "cyclooxygenase",
-                        "prostaglandinsynthesehemm", "entzündungshemm"]),
-            ("N02B", vec!["analgetik", "antipyretik", "acetylsalicylsäure", "paracetamol"]),
-            ("N02A", vec!["opioid", "opiat", "morphin", "atemdepression", "zns-depression"]),
-            ("C09A", vec!["ace-hemmer", "ace-inhibitor", "ace inhibitor", "angiotensin-converting"]),
-            ("C09B", vec!["ace-hemmer", "ace-inhibitor", "angiotensin-converting"]),
-            ("C09C", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist", "at1-blocker"]),
-            ("C09D", vec!["angiotensin", "sartan", "at1-rezeptor", "at1-antagonist"]),
-            ("C07", vec!["beta-blocker", "betablocker", "\u{03b2}-blocker", "betarezeptorenblocker", "beta-adrenozeptor"]),
-            ("C08", vec!["calciumantagonist", "calciumkanalblocker", "kalziumantagonist", "kalziumkanalblocker", "calcium-antagonist"]),
-            ("C03", vec!["diuretik", "thiazid", "schleifendiuretik", "kaliumsparend"]),
-            ("C03C", vec!["schleifendiuretik", "furosemid", "torasemid"]),
-            ("C03A", vec!["thiazid", "hydrochlorothiazid"]),
-            ("C01A", vec!["herzglykosid", "digoxin", "digitalis", "digitoxin"]),
-            ("C01B", vec!["antiarrhythmi", "amiodaron"]),
-            ("C10A", vec!["statin", "hmg-coa", "lipidsenk", "cholesterinsenk"]),
-            ("N06AB", vec!["ssri", "serotonin-wiederaufnahme", "serotonin reuptake", "selektive serotonin", "serotonerg"]),
-            ("N06A", vec!["antidepressiv", "trizyklisch", "serotonin", "snri", "maoh", "mao-hemmer", "monoaminoxidase"]),
-            ("A10", vec!["antidiabetik", "insulin", "blutzucker", "hypoglyk\u{00e4}mie", "orale antidiabetika", "sulfonylharnstoff", "metformin"]),
-            ("H02", vec!["corticosteroid", "kortikosteroid", "glucocorticoid", "glukokortikoid", "kortison", "steroid"]),
-            ("L04", vec!["immunsuppress", "ciclosporin", "tacrolimus", "mycophenolat", "azathioprin", "sirolimus"]),
-            ("L01", vec!["antineoplast", "zytostatik", "methotrexat", "chemotherap"]),
-            ("N03", vec!["antiepileptik", "antikonvulsiv", "krampfl\u{00f6}send", "carbamazepin", "valproins\u{00e4}ure", "phenytoin", "enzymindukt"]),
-            ("N05A", vec!["antipsychoti", "neuroleptik", "qt-verl\u{00e4}nger", "qt-zeit"]),
-            ("N05B", vec!["anxiolytik", "benzodiazepin"]),
-            ("N05C", vec!["sedativ", "hypnotik", "schlafmittel", "zns-d\u{00e4}mfpend", "zns-depression"]),
-            ("J01", vec!["antibiotik", "antibakteriell"]),
-            ("J01FA", vec!["makrolid", "erythromycin", "clarithromycin", "azithromycin"]),
-            ("J01MA", vec!["fluorchinolon", "chinolon", "gyrasehemm"]),
-            ("J02A", vec!["antimykotik", "azol-antimykotik", "triazol", "itraconazol", "fluconazol", "voriconazol", "cyp3a4-hemm"]),
-            ("J05A", vec!["antiviral", "proteasehemm", "protease-inhibitor", "hiv"]),
-            ("A02BC", vec!["protonenpumpeninhibitor", "protonenpumpenhemm", "ppi", "s\u{00e4}ureblocker"]),
-            ("A02B", vec!["antazid", "h2-blocker", "h2-antagonist", "s\u{00e4}urehemm"]),
-            ("G03A", vec!["kontrazeptiv", "\u{00f6}strogen", "orale kontrazeptiva", "hormonelle verh\u{00fc}tung"]),
-            ("N07", vec!["dopaminerg", "cholinerg", "anticholinerg"]),
-            ("R03", vec!["bronchodilatat", "theophyllin", "sympathomimetik", "beta-2"]),
-            ("M04", vec!["urikosurik", "gichtmittel", "harns\u{00e4}ure", "allopurinol"]),
-            ("B03", vec!["eisen", "eisenpr\u{00e4}parat", "eisensupplementation"]),
-            ("L02BA", vec!["toremifen", "tamoxifen", "anti\u{00f6}strogen", "\u{00f6}strogen-rezeptor", "serm", "selektive \u{00f6}strogenrezeptor"]),
-            ("L02B", vec!["hormonantagonist", "antihormon", "antiandrogen", "anti\u{00f6}strogen"]),
-            ("V03AB", vec!["sugammadex", "antidot", "antagonisierung", "neuromuskul\u{00e4}re blockade", "verdr\u{00e4}ngung"]),
-            ("M03A", vec!["muskelrelax", "neuromuskul\u{00e4}r", "rocuronium", "vecuronium", "succinylcholin", "curare"]),
-        ];
+        let class_keywords = load_class_keywords(&conn);
 
         let mut drugs_in_class: HashMap<String, usize> = HashMap::new();
         for (prefix, _) in &class_keywords {
-            let count = drugs.iter().filter(|d| d.atc.starts_with(prefix)).count();
+            let count = drugs.iter().filter(|d| d.atc.starts_with(prefix.as_str())).count();
             drugs_in_class.insert(prefix.to_string(), count);
         }
 
@@ -942,7 +896,7 @@ async fn class_interactions_api(
         let mut classes = Vec::new();
 
         for (prefix, keywords) in &class_keywords {
-            let n_in_class = *drugs_in_class.get(*prefix).unwrap_or(&0);
+            let n_in_class = *drugs_in_class.get(prefix.as_str()).unwrap_or(&0);
             if n_in_class == 0 { continue; }
 
             let mut mentioning_substances: HashSet<String> = HashSet::new();
@@ -952,9 +906,9 @@ async fn class_interactions_api(
             for kw in keywords {
                 let mut count = 0usize;
                 for drug in &drugs {
-                    if drug.atc.starts_with(prefix) { continue; }
+                    if drug.atc.starts_with(prefix.as_str()) { continue; }
                     let text_lower = drug.text.to_lowercase();
-                    if text_lower.contains(kw) {
+                    if text_lower.contains(kw.as_str()) {
                         mentioning_substances.insert(drug.substances.clone());
                         count += 1;
                     }
