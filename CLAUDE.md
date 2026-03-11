@@ -71,7 +71,10 @@ sdif search "QT-Verlängerung" -l 5
 - `sdif serve [-p PORT]` — start Axum web server (default port 3000) with basket check UI, drug autocomplete, and clinical search
 
 ## Stats image
-- `python3 generate_stats.py` — generates `sdif_swiss_drug_interactions_finder_stats_HHhMM-dd.mm.yyyy.png`
+```bash
+python3 generate_stats.py
+```
+- Generates `sdif_swiss_drug_interactions_finder_stats_HHhMM-dd.mm.yyyy.png`
 - Reads all values live from `db/interactions.db` (no hardcoded stats)
 - Requires matplotlib; embedded in README.md
 - After regenerating, update the filename reference in README.md

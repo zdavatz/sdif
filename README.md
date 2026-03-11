@@ -72,7 +72,14 @@ Generates `db/interactions.db` with the following tables:
 
 ### Stats
 
-See the infographic at the top of this page — generated live from `db/interactions.db` via `python3 generate_stats.py`.
+See the infographic at the top of this page — generated live from `db/interactions.db`.
+
+```bash
+# Regenerate stats image (requires matplotlib)
+python3 generate_stats.py
+```
+
+After regenerating, update the filename reference in this README.
 
 ## Example: Ponstan + Marcoumar + Aspirin
 
