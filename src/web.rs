@@ -15,11 +15,16 @@ use crate::{find_class_interactions, find_cyp_interactions, score_severity, seve
 
 struct AppState {
     db_path: String,
+    epha: bool,
 }
 
-pub async fn serve(db_path: &str, port: u16) -> Result<()> {
+pub async fn serve(db_path: &str, port: u16, epha: bool) -> Result<()> {
+    if epha {
+        println!("EPha interactions enabled");
+    }
     let state = Arc::new(AppState {
         db_path: db_path.to_string(),
+        epha,
     });
 
     let app = Router::new()
@@ -153,13 +158,14 @@ struct InteractionResult {
     drug_a_atc: String,
     drug_b: String,
     drug_b_atc: String,
-    interaction_type: String, // "substance", "class-level", "CYP"
+    interaction_type: String, // "substance", "class-level", "CYP", "epha"
     severity_score: u8,
     severity_label: String,
     severity_indicator: String,
     keyword: String,
     description: String,
     explanation: String,
+    source: String, // "Swissmedic FI" or "EPha"
 }
 
 struct BasketDrug {
@@ -231,6 +237,8 @@ async fn check_interactions(
     Json(req): Json<CheckRequest>,
 ) -> impl IntoResponse {
     let db_path = state.db_path.clone();
+    let epha_enabled = state.epha;
+    let fi_source = if epha_enabled { "Swissmedic FI".to_string() } else { String::new() };
     let result = tokio::task::spawn_blocking(move || -> Result<CheckResponse> {
         let conn = Connection::open(&db_path)?;
 
@@ -281,6 +289,7 @@ async fn check_interactions(
                             keyword: subst.clone(),
                             description: desc,
                             explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, a.brand),
+                            source: fi_source.clone(),
                         });
                     }
                 }
@@ -309,6 +318,7 @@ async fn check_interactions(
                             keyword: subst.clone(),
                             description: desc,
                             explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, b.brand),
+                            source: fi_source.clone(),
                         });
                     }
                 }
@@ -330,6 +340,7 @@ async fn check_interactions(
                         description: hit.context,
                         explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
                             b.brand, b.atc_code, class_desc, hit.class_keyword, a.brand),
+                        source: fi_source.clone(),
                     });
                 }
                 for hit in find_class_interactions(&b.interactions_text, &a.atc_code) {
@@ -348,6 +359,7 @@ async fn check_interactions(
                         description: hit.context,
                         explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
                             a.brand, a.atc_code, class_desc, hit.class_keyword, b.brand),
+                        source: fi_source.clone(),
                     });
                 }
 
@@ -367,6 +379,7 @@ async fn check_interactions(
                         description: hit.context,
                         explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
                             b.brand, hit.class_keyword, a.brand),
+                        source: fi_source.clone(),
                     });
                 }
                 for hit in find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances) {
@@ -384,8 +397,47 @@ async fn check_interactions(
                         description: hit.context,
                         explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
                             a.brand, hit.class_keyword, b.brand),
+                        source: fi_source.clone(),
                     });
                 }
+
+                // Strategy 4: EPha curated interactions by ATC pair
+                if epha_enabled {
+                let mut epha_stmt = conn.prepare(
+                    "SELECT risk_class, risk_label, effect, mechanism, measures, severity_score, title \
+                     FROM epha_interactions WHERE (atc1 = ?1 AND atc2 = ?2) OR (atc1 = ?2 AND atc2 = ?1) LIMIT 1",
+                )?;
+                let epha_rows: Vec<(String, String, String, String, String, u8, String)> = epha_stmt
+                    .query_map(params![a.atc_code, b.atc_code], |row| {
+                        Ok((
+                            row.get(0)?, row.get(1)?, row.get(2)?,
+                            row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?,
+                        ))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                for (risk_class, risk_label, effect, mechanism, measures, sev_score, _title) in epha_rows {
+                    let desc = if mechanism.is_empty() {
+                        effect.clone()
+                    } else {
+                        format!("{}\n\nMechanismus: {}\n\nMassnahmen: {}", effect, mechanism, measures)
+                    };
+                    interactions.push(InteractionResult {
+                        drug_a: a.brand.clone(),
+                        drug_a_atc: a.atc_code.clone(),
+                        drug_b: b.brand.clone(),
+                        drug_b_atc: b.atc_code.clone(),
+                        interaction_type: "epha".to_string(),
+                        severity_score: sev_score,
+                        severity_label: risk_label,
+                        severity_indicator: severity_indicator(sev_score).to_string(),
+                        keyword: risk_class,
+                        description: desc,
+                        explanation: format!("EPha Interaktionsdatenbank (ATC {} ↔ {})", a.atc_code, b.atc_code),
+                        source: "EPha".to_string(),
+                    });
+                }
+                } // end if epha_enabled
             }
         }
 
@@ -422,6 +474,7 @@ struct SearchResult {
     severity_label: String,
     severity_indicator: String,
     description: String,
+    source: String,
 }
 
 #[derive(Serialize)]
@@ -435,6 +488,8 @@ async fn search_interactions_api(
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
     let db_path = state.db_path.clone();
+    let epha_enabled = state.epha;
+    let fi_source = if epha_enabled { "Swissmedic FI".to_string() } else { String::new() };
     let result = tokio::task::spawn_blocking(move || -> Result<SearchResponse> {
         let conn = Connection::open(&db_path)?;
         let pattern = format!("%{}%", query.term);
@@ -466,6 +521,7 @@ async fn search_interactions_api(
                     severity_label: row.get(6)?,
                     severity_indicator: severity_indicator(row.get::<_, u8>(5)?).to_string(),
                     description: row.get(4)?,
+                    source: fi_source.clone(),
                 })
             })?
             .filter_map(|r| r.ok())
@@ -482,15 +538,85 @@ async fn search_interactions_api(
                     severity_label: row.get(6)?,
                     severity_indicator: severity_indicator(row.get::<_, u8>(5)?).to_string(),
                     description: row.get(4)?,
+                    source: fi_source.clone(),
                 })
             })?
             .filter_map(|r| r.ok())
             .collect()
         };
 
+        // Also search EPha interactions (if enabled)
+        let (epha_rows, epha_total) = if epha_enabled {
+            let epha_sql = if query.limit.is_some() {
+                "SELECT title, effect, mechanism, measures, risk_class, risk_label, severity_score \
+                 FROM epha_interactions WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 \
+                 ORDER BY severity_score DESC LIMIT ?2"
+            } else {
+                "SELECT title, effect, mechanism, measures, risk_class, risk_label, severity_score \
+                 FROM epha_interactions WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 \
+                 ORDER BY severity_score DESC"
+            };
+            let mut epha_stmt = conn.prepare(epha_sql)?;
+            let er: Vec<SearchResult> = if let Some(lim) = query.limit {
+                epha_stmt.query_map(params![pattern, lim], |row| {
+                    let effect: String = row.get(1)?;
+                    let mechanism: String = row.get(2)?;
+                    let measures: String = row.get(3)?;
+                    let desc = if mechanism.is_empty() {
+                        effect
+                    } else {
+                        format!("{}\n\nMechanismus: {}\n\nMassnahmen: {}", effect, mechanism, measures)
+                    };
+                    Ok(SearchResult {
+                        drug_brand: row.get(0)?,
+                        interacting_substance: String::new(),
+                        interacting_brand: String::new(),
+                        severity_score: row.get(6)?,
+                        severity_label: row.get(5)?,
+                        severity_indicator: severity_indicator(row.get::<_, u8>(6)?).to_string(),
+                        description: desc,
+                        source: "EPha".to_string(),
+                    })
+                })?.filter_map(|r| r.ok()).collect()
+            } else {
+                epha_stmt.query_map(params![pattern], |row| {
+                    let effect: String = row.get(1)?;
+                    let mechanism: String = row.get(2)?;
+                    let measures: String = row.get(3)?;
+                    let desc = if mechanism.is_empty() {
+                        effect
+                    } else {
+                        format!("{}\n\nMechanismus: {}\n\nMassnahmen: {}", effect, mechanism, measures)
+                    };
+                    Ok(SearchResult {
+                        drug_brand: row.get(0)?,
+                        interacting_substance: String::new(),
+                        interacting_brand: String::new(),
+                        severity_score: row.get(6)?,
+                        severity_label: row.get(5)?,
+                        severity_indicator: severity_indicator(row.get::<_, u8>(6)?).to_string(),
+                        description: desc,
+                        source: "EPha".to_string(),
+                    })
+                })?.filter_map(|r| r.ok()).collect()
+            };
+            let et: usize = conn.query_row(
+                "SELECT COUNT(*) FROM epha_interactions WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1",
+                params![pattern],
+                |row| row.get(0),
+            )?;
+            (er, et)
+        } else {
+            (Vec::new(), 0)
+        };
+
+        let mut all_results = rows;
+        all_results.extend(epha_rows);
+        all_results.sort_by(|a, b| b.severity_score.cmp(&a.severity_score));
+
         Ok(SearchResponse {
-            total,
-            results: rows,
+            total: total + epha_total,
+            results: all_results,
         })
     })
     .await;
@@ -524,16 +650,30 @@ async fn suggest_terms_api(
     }
 
     let db_path = state.db_path.clone();
+    let epha_enabled = state.epha;
     let result = tokio::task::spawn_blocking(move || -> Result<Vec<TermSuggestion>> {
         let conn = Connection::open(&db_path)?;
         let pattern = format!("%{}%", q);
         let mut stmt = conn.prepare(
             "SELECT description FROM interactions WHERE description LIKE ?1 LIMIT 500"
         )?;
-        let descriptions: Vec<String> = stmt
+        let mut descriptions: Vec<String> = stmt
             .query_map(params![pattern], |row| row.get(0))?
             .filter_map(|r| r.ok())
             .collect();
+
+        // Also include EPha descriptions (if enabled)
+        if epha_enabled {
+        let mut epha_stmt = conn.prepare(
+            "SELECT effect || ' ' || mechanism || ' ' || measures FROM epha_interactions \
+             WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 LIMIT 500"
+        )?;
+        let epha_descs: Vec<String> = epha_stmt
+            .query_map(params![pattern], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        descriptions.extend(epha_descs);
+        }
 
         // Extract words/phrases around the matching term
         // term_counts: lowercase key -> total count

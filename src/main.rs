@@ -38,6 +38,9 @@ enum Commands {
         /// Port to listen on
         #[arg(short, long, default_value = "3000")]
         port: u16,
+        /// Include EPha curated interactions alongside Swissmedic FI results
+        #[arg(long)]
+        epha: bool,
     },
     /// Search interactions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung, Blutungsrisiko)
     Search {
@@ -68,6 +71,19 @@ struct Interaction {
     description: String,
 }
 
+#[derive(Debug, Clone)]
+struct EphaInteraction {
+    atc1: String,
+    atc2: String,
+    risk_class: String,
+    risk_label: String,
+    effect: String,
+    mechanism: String,
+    measures: String,
+    title: String,
+    severity_score: u8,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -82,9 +98,9 @@ fn main() -> Result<()> {
         Some(Commands::ClassInteractions) => {
             list_class_interactions(output_path)?;
         }
-        Some(Commands::Serve { port }) => {
+        Some(Commands::Serve { port, epha }) => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(web::serve(output_path, port))?;
+            rt.block_on(web::serve(output_path, port, epha))?;
         }
         Some(Commands::Search { term, limit }) => {
             search_interactions(output_path, &term, limit)?;
@@ -93,6 +109,7 @@ fn main() -> Result<()> {
             if download {
                 download_source_db(db_path)?;
                 download_atc_csv()?;
+                download_epha_csv()?;
             }
             run_build(db_path, output_path)?;
             if publish {
@@ -156,6 +173,35 @@ fn download_atc_csv() -> Result<()> {
     Ok(())
 }
 
+fn download_epha_csv() -> Result<()> {
+    let csv_dir = "csv";
+    std::fs::create_dir_all(csv_dir)?;
+
+    let zip_path = format!("{}/drug_interactions_csv_de.zip", csv_dir);
+    let url = "http://pillbox.oddb.org/drug_interactions_csv_de.zip";
+
+    println!("Downloading {}...", url);
+    let status = std::process::Command::new("curl")
+        .args(&["-L", "-o", &zip_path, url])
+        .status()
+        .with_context(|| "Failed to run curl")?;
+    if !status.success() {
+        anyhow::bail!("EPha CSV download failed");
+    }
+
+    println!("Extracting EPha CSV...");
+    let status = std::process::Command::new("unzip")
+        .args(&["-o", &zip_path, "-d", csv_dir])
+        .status()
+        .with_context(|| "Failed to run unzip")?;
+    if !status.success() {
+        anyhow::bail!("EPha CSV extraction failed");
+    }
+
+    println!("EPha CSV ready at csv/drug_interactions_csv_de.csv");
+    Ok(())
+}
+
 fn publish_db(output_path: &str) -> Result<()> {
     let dest = "zdavatz@65.109.137.20:/var/www/pillbox.oddb.org/";
     println!("Publishing {} to {}...", output_path, dest);
@@ -168,6 +214,99 @@ fn publish_db(output_path: &str) -> Result<()> {
     }
     println!("Published successfully.");
     Ok(())
+}
+
+fn parse_epha_csv(path: &str) -> Result<Vec<EphaInteraction>> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("EPha CSV not found at {} ({}), skipping EPha integration", path, e);
+            return Ok(Vec::new());
+        }
+    };
+
+    let tag_re = Regex::new(r"<[^>]+>").unwrap();
+    let mut results = Vec::new();
+
+    for line in content.lines() {
+        let parts: Vec<&str> = line.splitn(3, "||").collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let atc1 = parts[0].trim().to_string();
+        let atc2 = parts[1].trim().to_string();
+        let html = parts[2];
+
+        // Extract fields from HTML using simple pattern matching
+        let extract = |label: &str| -> String {
+            let search = format!("{}:</i>", label);
+            if let Some(start) = html.find(&search) {
+                let after = &html[start + search.len()..];
+                let end = after.find("</p>").unwrap_or(after.len());
+                let raw = &after[..end];
+                let text = tag_re.replace_all(raw, "");
+                let text = text.replace("&rarr;", "→")
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&nbsp;", " ")
+                    .replace("&auml;", "ä")
+                    .replace("&ouml;", "ö")
+                    .replace("&uuml;", "ü");
+                text.trim().to_string()
+            } else {
+                String::new()
+            }
+        };
+
+        // Extract title from absTitle div
+        let title = if let Some(start) = html.find("class=\"absTitle\">") {
+            let after = &html[start + 17..];
+            let end = after.find("</div>").unwrap_or(after.len());
+            let raw = &after[..end];
+            let text = tag_re.replace_all(raw, "");
+            text.replace("&rarr;", "→").trim().to_string()
+        } else {
+            format!("{} → {}", atc1, atc2)
+        };
+
+        let risk_label = extract("Risikoklasse");
+        let effect = extract("Möglicher Effekt");
+        let mechanism = extract("Mechanismus");
+        let measures = extract("Empfohlene Massnahmen");
+
+        // Extract risk class letter from label like "Kombination vermeiden (D)"
+        let risk_class = risk_label
+            .rfind('(')
+            .and_then(|p| {
+                let rest = &risk_label[p + 1..];
+                rest.find(')').map(|e| rest[..e].trim().to_string())
+            })
+            .unwrap_or_default();
+
+        let severity_score = match risk_class.as_str() {
+            "X" => 3,
+            "D" => 2,
+            "C" => 1,
+            "B" => 1,
+            "A" => 0,
+            _ => 0,
+        };
+
+        results.push(EphaInteraction {
+            atc1,
+            atc2,
+            risk_class,
+            risk_label,
+            effect,
+            mechanism,
+            measures,
+            title,
+            severity_score,
+        });
+    }
+
+    Ok(results)
 }
 
 fn load_atc_csv(path: &str) -> Result<HashMap<String, String>> {
@@ -227,7 +366,10 @@ fn run_build(db_path: &str, output_path: &str) -> Result<()> {
     let interactions = extract_interactions(&drugs)?;
     println!("Extracted {} interaction records", interactions.len());
 
-    write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands)?;
+    let epha = parse_epha_csv("csv/drug_interactions_csv_de.csv")?;
+    println!("Parsed {} EPha interaction records", epha.len());
+
+    write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands, &epha)?;
     println!("Wrote interactions database to: {}", output_path);
 
     // Severity stats
@@ -912,6 +1054,7 @@ fn write_interactions_db(
     drugs: &[Drug],
     interactions: &[Interaction],
     substance_to_brands: &HashMap<String, Vec<String>>,
+    epha_interactions: &[EphaInteraction],
 ) -> Result<()> {
     let _ = std::fs::remove_file(path);
     let conn = Connection::open(path)?;
@@ -948,6 +1091,22 @@ fn write_interactions_db(
         );
         CREATE INDEX idx_sbm_substance ON substance_brand_map(substance);
         CREATE INDEX idx_sbm_brand ON substance_brand_map(brand_name);
+
+        CREATE TABLE epha_interactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            atc1 TEXT NOT NULL,
+            atc2 TEXT NOT NULL,
+            risk_class TEXT NOT NULL DEFAULT '',
+            risk_label TEXT NOT NULL DEFAULT '',
+            effect TEXT NOT NULL DEFAULT '',
+            mechanism TEXT NOT NULL DEFAULT '',
+            measures TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            severity_score INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_epha_atc1 ON epha_interactions(atc1);
+        CREATE INDEX idx_epha_atc2 ON epha_interactions(atc2);
+        CREATE INDEX idx_epha_pair ON epha_interactions(atc1, atc2);
         ",
     )?;
 
@@ -1000,6 +1159,26 @@ fn write_interactions_db(
             for brand in brands {
                 stmt.execute(params![substance, brand])?;
             }
+        }
+    }
+
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO epha_interactions (atc1, atc2, risk_class, risk_label, effect, mechanism, measures, title, severity_score) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )?;
+        for epha in epha_interactions {
+            stmt.execute(params![
+                epha.atc1,
+                epha.atc2,
+                epha.risk_class,
+                epha.risk_label,
+                epha.effect,
+                epha.mechanism,
+                epha.measures,
+                epha.title,
+                epha.severity_score,
+            ])?;
         }
     }
 
@@ -1071,7 +1250,7 @@ fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Resul
             format!(" ({})", first)
         };
         println!(
-            "{} <-> {}{} | Severity: {} ({})",
+            "[Swissmedic FI] {} <-> {}{} | Severity: {} ({})",
             drug_brand,
             interacting_substance,
             other_brands,
@@ -1079,6 +1258,37 @@ fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Resul
             sev_label
         );
         println!("  {}\n", desc);
+    }
+
+    // Also search EPha interactions
+    let epha_query = if limit.is_some() {
+        "SELECT title, effect, mechanism, measures, risk_class, risk_label, severity_score \
+         FROM epha_interactions WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 \
+         ORDER BY severity_score DESC LIMIT ?2"
+    } else {
+        "SELECT title, effect, mechanism, measures, risk_class, risk_label, severity_score \
+         FROM epha_interactions WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 \
+         ORDER BY severity_score DESC"
+    };
+    let mut epha_stmt = conn.prepare(epha_query)?;
+    let epha_rows: Vec<(String, String, String, String, String, String, u8)> = if let Some(lim) = limit {
+        epha_stmt.query_map(params![pattern, lim], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
+        })?.filter_map(|r| r.ok()).collect()
+    } else {
+        epha_stmt.query_map(params![pattern], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
+        })?.filter_map(|r| r.ok()).collect()
+    };
+
+    if !epha_rows.is_empty() {
+        println!("--- EPha results ({}) ---\n", epha_rows.len());
+        for (title, effect, mechanism, measures, risk_class, _risk_label, _sev) in &epha_rows {
+            println!("[EPha] {} | Risikoklasse: {}", title, risk_class);
+            println!("  Effekt: {}", effect);
+            println!("  Mechanismus: {}", mechanism);
+            println!("  Massnahmen: {}\n", measures);
+        }
     }
 
     Ok(())
@@ -1341,6 +1551,37 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                     b.brand, a.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
                 );
                 println!("  {}", hit.context);
+                found_any = true;
+            }
+
+            // Strategy 4: EPha curated interactions by ATC pair
+            let mut epha_stmt = conn.prepare(
+                "SELECT risk_class, risk_label, effect, mechanism, measures, severity_score, title \
+                 FROM epha_interactions WHERE (atc1 = ?1 AND atc2 = ?2) OR (atc1 = ?2 AND atc2 = ?1) LIMIT 1",
+            )?;
+            let epha_rows: Vec<(String, String, String, String, String, u8, String)> = epha_stmt
+                .query_map(params![a.atc_code, b.atc_code], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            for (risk_class, risk_label, effect, mechanism, measures, sev_score, _title) in &epha_rows {
+                println!(
+                    "\nINTERACTION [EPha]: {} <-> {} | Risikoklasse: {} ({})",
+                    a.brand, b.brand, risk_class, risk_label
+                );
+                println!("  Effekt: {}", effect);
+                println!("  Mechanismus: {}", mechanism);
+                println!("  Massnahmen: {}", measures);
+                let _ = sev_score; // used for display ordering
                 found_any = true;
             }
         }

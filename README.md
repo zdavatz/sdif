@@ -1,13 +1,13 @@
 # SDIF - Swiss Drug Interaction Finder
 
-A Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database. It extracts interaction data from drug labels (Fachinformation) and enables basket-based interaction checking between drugs. Supports input by brand name or substance name.
+A Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database and EPha curated interaction data. It extracts interaction data from drug labels (Fachinformation) and enables basket-based interaction checking between drugs. Optionally includes EPha professionally graded ATC-pair interactions. Supports input by brand name or substance name.
 
 ![SDIF Stats](sdif_swiss_drug_interactions_finder_stats_08h13-11.03.2026.png)
 
 ## How it works
 
 1. Downloads and reads the AmiKo full-text database (`amiko_db_full_idx_de.db`)
-2. Downloads the official WHO ATC classification (`csv/atc.csv`) and cross-checks every drug's ATC code against it
+2. Downloads the official WHO ATC classification (`csv/atc.csv`) and EPha interactions (`csv/drug_interactions_csv_de.csv`) and cross-checks every drug's ATC code against the ATC classification
 3. Extracts active substance names from ATC codes (German names), with fallback to the Zusammensetzung/Wirkstoffe HTML section when the ATC column lacks substance names
 4. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
 5. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
@@ -19,13 +19,14 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 - **Substance-level matching**: Direct lookup — does Drug A's interaction text mention Drug B's active substance?
 - **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist). Keywords are maintained in [`txt/keywords.txt`](txt/keywords.txt) and embedded at compile time.
 - **CYP enzyme matching**: Detects CYP450-mediated interactions at query time — if Drug A's text mentions a CYP enzyme (e.g. CYP3A4) and Drug B is a known inhibitor or inducer of that enzyme, the interaction is flagged. Covers CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6 with known inhibitors/inducers mapped by ATC prefix and substance name (e.g. Ritonavir ↔ Clobetasol via CYP3A4)
+- **EPha curated interactions** (opt-in via `--epha`): 9,133 unique ATC-pair interactions from the EPha.ch database with professional 5-level risk grading (A = keine Massnahmen, B = Vorsichtsmassnahmen, C = Überwachung, D = Kombination vermeiden, X = Kontraindiziert). Includes structured effect descriptions, mechanisms, and recommended measures. Stored in a separate `epha_interactions` table — backward-compatible with existing tools
 
 ## Build & Run
 
 ```bash
 cargo build --release
 
-# Download source DB + ATC CSV and build interactions database (first time)
+# Download source DB + ATC CSV + EPha CSV and build interactions database (first time)
 sdif build --download
 
 # Rebuild without downloading (subsequent runs)
@@ -55,7 +56,7 @@ Commands:
   check              Check interactions between drugs in a basket
   search             Search interactions by clinical term
   class-interactions List all class-level interactions across all drug pairs
-  serve              Start the web UI (default port 3000)
+  serve              Start the web UI (default port 3000, --epha to include EPha interactions)
 ```
 
 Running `sdif` without a subcommand defaults to `build`.
@@ -69,6 +70,7 @@ Generates `db/interactions.db` with the following tables:
 - **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text
 - **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
 - **substance_brand_map** — maps substance names to brand names
+- **epha_interactions** — EPha curated ATC-pair interactions with risk class, effect, mechanism, and measures
 
 ### Stats
 
@@ -114,6 +116,7 @@ Severity levels: ### Kontraindiziert, ## Schwerwiegend, # Vorsicht, - Keine Eins
 
 ```bash
 sdif serve           # starts on http://localhost:3000
+sdif serve --epha    # include EPha curated interactions (with source badges)
 sdif serve -p 8080   # custom port
 ```
 

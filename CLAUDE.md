@@ -1,7 +1,7 @@
 # CLAUDE.md - SDIF (Swiss Drug Interaction Finder)
 
 ## Overview
-Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database. Extracts interaction data from Fachinformation HTML and enables basket-based interaction checking.
+Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database and EPha interaction data. Extracts interaction data from Fachinformation HTML and EPha curated ATC-pair interactions, enables basket-based interaction checking.
 
 ## Build & Run
 ```bash
@@ -29,6 +29,7 @@ sdif search "QT-Verlängerung" -l 5
 - **Source**: `src/main.rs` (single-file for now)
 - **Input**: `db/amiko_db_full_idx_de.db` — AmiKo full-text DB with 4,564 drug entries
 - **Input**: `csv/atc.csv` — WHO ATC classification (downloaded from pillbox.oddb.org), used to cross-check ATC codes
+- **Input**: `csv/drug_interactions_csv_de.csv` — EPha curated drug interactions (downloaded from pillbox.oddb.org as zip), 15,920 ATC-pair interactions with risk classes A–X
 - **Output**: `db/interactions.db` — pre-computed interactions DB
 
 ### Key data flow
@@ -49,6 +50,11 @@ sdif search "QT-Verlängerung" -l 5
   - Covers: CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6
   - Inhibitors/inducers mapped by ATC prefix (e.g. J05AE = HIV protease inhibitors) and substance name (e.g. ritonavir, rifampicin)
   - Basket lookup prefers drug entries with longest interaction text to avoid matching sparse formulations
+- **EPha curated**: Professionally graded ATC-pair interactions from EPha.ch database (separate `epha_interactions` table)
+  - 9,133 unique ATC pairs with 5-level risk classification (A/B/C/D/X)
+  - Includes structured effect, mechanism, and recommended measures
+  - Looked up by ATC code pair during basket check when `--epha` flag is used; clearly labeled as "EPha" source
+  - Severity mapping: X→3, D→2, C→1, B→1, A→0
 
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
@@ -62,13 +68,14 @@ sdif search "QT-Verlängerung" -l 5
 - `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text)
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
 - `substance_brand_map` (substance, brand_name)
+- `epha_interactions` (atc1, atc2, risk_class, risk_label, effect, mechanism, measures, title, severity_score) — EPha curated data, queried by ATC pair
 
 ## CLI
-- `sdif build [--download] [--publish]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV first; `--publish` deploys interactions.db to pillbox.oddb.org via scp
+- `sdif build [--download] [--publish]` — (re)build interactions.db; `--download` fetches AmiKo source DB + ATC CSV + EPha CSV first; `--publish` deploys interactions.db to pillbox.oddb.org via scp
 - `sdif check <drug1> <drug2> ...` — check basket for interactions (accepts brand names or substance names)
 - `sdif search <term> [-l N]` — search interaction descriptions by clinical term (e.g. Prothrombinzeit, QT-Verlängerung), sorted by severity, shows all by default
 - `sdif class-interactions` — list all class-level interactions across all drug pairs, showing per-ATC-class stats (drugs in class, drugs mentioning class keywords, potential pairs)
-- `sdif serve [-p PORT]` — start Axum web server (default port 3000) with basket check UI, drug autocomplete, and clinical search
+- `sdif serve [-p PORT] [--epha]` — start Axum web server (default port 3000); `--epha` enables EPha curated interactions alongside Swissmedic FI results (with source badges)
 
 ## Stats image
 ```bash
@@ -84,6 +91,7 @@ python3 generate_stats.py
 - API: `/api/search-drugs` (with `?q=` or `?atc=`), `/api/check`, `/api/search-interactions`, `/api/suggest-terms`, `/api/class-interactions`
 - Frontend: vanilla HTML/CSS/JS, no build step
 - Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty
+- With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
 - Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text
 
 ## Dependencies

@@ -59,6 +59,9 @@
   .badge-2 { background: #f59e0b; }
   .badge-1 { background: #3b82f6; }
   .badge-0 { background: #9ca3af; }
+  .source-badge { display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
+  .source-fi { background: #dbeafe; color: #1e40af; }
+  .source-epha { background: #fce7f3; color: #9d174d; }
   .interaction-type { font-size: 0.8rem; color: #888; margin-bottom: 4px; }
   .interaction-explanation { font-size: 0.82rem; color: #555; margin-bottom: 6px; font-style: italic; }
   .interaction-desc { font-size: 0.88rem; color: #444; line-height: 1.6; max-height: 4.8em; overflow: hidden; position: relative; }
@@ -87,7 +90,7 @@
 <body>
 <div class="container">
   <h1>SDIF - Swiss Drug Interaction Finder</h1>
-  <p class="subtitle">Interaktionscheck auf Basis der Schweizer Fachinformationen (AmiKo)</p>
+  <p class="subtitle">Interaktionscheck auf Basis der Schweizer Fachinformationen und EPha</p>
 
   <div class="tabs">
     <button class="tab active" data-tab="check">Interaktions-Check</button>
@@ -334,12 +337,18 @@ async function checkInteractions() {
 
 function renderInteraction(ix) {
   const typeLabel = ix.interaction_type === 'substance' ? 'Substanz-Match' :
-                    ix.interaction_type === 'class-level' ? 'ATC-Klasse' : 'CYP-Enzym';
+                    ix.interaction_type === 'class-level' ? 'ATC-Klasse' :
+                    ix.interaction_type === 'epha' ? 'EPha' : 'CYP-Enzym';
+  const sourceBadge = !ix.source ? '' :
+    ix.source === 'EPha'
+    ? '<span class="source-badge source-epha">EPha</span>'
+    : '<span class="source-badge source-fi">Swissmedic FI</span>';
   const explanation = ix.explanation ? `<div class="interaction-explanation">${esc(ix.explanation)}</div>` : '';
   return `<div class="interaction-card sev-${ix.severity_score}">
     <div class="interaction-header">
       <span class="interaction-drugs">${esc(ix.drug_a)} [${esc(ix.drug_a_atc)}] &harr; ${esc(ix.drug_b)} [${esc(ix.drug_b_atc)}]</span>
       <span class="interaction-badge badge-${ix.severity_score}">${ix.severity_indicator} ${esc(ix.severity_label)}</span>
+      ${sourceBadge}
     </div>
     <div class="interaction-type">${typeLabel}</div>
     ${explanation}
@@ -440,10 +449,15 @@ async function searchInteractions(term) {
   resultsEl.innerHTML = `<p class="search-results-count">${data.total} Interaktionen gefunden${data.total > 50 ? ' (Top 50 angezeigt)' : ''}</p>` +
     data.results.map(r => {
       const brandInfo = r.interacting_brand ? ` (${esc(r.interacting_brand)})` : '';
+      const srcBadge = !r.source ? '' :
+        r.source === 'EPha'
+        ? '<span class="source-badge source-epha">EPha</span>'
+        : '<span class="source-badge source-fi">Swissmedic FI</span>';
       return `<div class="interaction-card sev-${r.severity_score}">
         <div class="interaction-header">
           <span class="interaction-drugs">${esc(r.drug_brand)} &harr; ${esc(r.interacting_substance)}${brandInfo}</span>
           <span class="interaction-badge badge-${r.severity_score}">${r.severity_indicator} ${esc(r.severity_label)}</span>
+          ${srcBadge}
         </div>
         <div class="interaction-desc">${decodeAndEsc(r.description)}</div>
         <span class="expand-btn">mehr anzeigen</span>
