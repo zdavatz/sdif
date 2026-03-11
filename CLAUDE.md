@@ -84,6 +84,7 @@ python3 generate_stats.py
 - API: `/api/search-drugs` (with `?q=` or `?atc=`), `/api/check`, `/api/search-interactions`, `/api/suggest-terms`, `/api/class-interactions`
 - Frontend: vanilla HTML/CSS/JS, no build step
 - Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty
+- Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text
 
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`

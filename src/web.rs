@@ -536,8 +536,17 @@ async fn suggest_terms_api(
             .collect();
 
         // Extract words/phrases around the matching term
+        // term_counts: lowercase key -> total count
+        // form_counts: lowercase key -> (original form -> count) to pick best capitalization
         let mut term_counts: HashMap<String, usize> = HashMap::new();
+        let mut form_counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
         let q_lower = q.to_lowercase();
+
+        let mut add_term = |original: &str| {
+            let key = original.to_lowercase();
+            *term_counts.entry(key.clone()).or_insert(0) += 1;
+            *form_counts.entry(key).or_default().entry(original.to_string()).or_insert(0) += 1;
+        };
 
         for desc in &descriptions {
             let desc_lower = desc.to_lowercase();
@@ -556,8 +565,44 @@ async fn suggest_terms_api(
 
                 let word = desc[start..end].trim();
                 if word.len() >= q.len() + 1 && word.len() <= 40 {
-                    let key = word.to_lowercase();
-                    *term_counts.entry(key).or_insert(0) += 1;
+                    add_term(word);
+                }
+
+                // Also extract two-word phrases (bigrams)
+                // Look for the next word after the current match
+                let after = &desc_lower[end..];
+                if let Some(next_start_offset) = after.find(|c: char| !c.is_whitespace() && c != ',' && c != ';' && c != '.' && c != ')') {
+                    let next_abs_start = end + next_start_offset;
+                    // Only proceed if the separator was whitespace (not punctuation)
+                    let separator = &desc_lower[end..next_abs_start];
+                    if separator.chars().all(|c| c.is_whitespace()) && !separator.is_empty() {
+                        let next_end = desc_lower[next_abs_start..]
+                            .find(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',' || c == '.' || c == ';')
+                            .map(|i| next_abs_start + i)
+                            .unwrap_or(desc_lower.len());
+                        let bigram = desc[start..next_end].trim();
+                        if bigram.len() > word.len() + 1 && bigram.len() <= 60 {
+                            add_term(bigram);
+                        }
+                    }
+                }
+
+                // Also look for the previous word before the current match
+                let before = &desc_lower[..start];
+                if let Some(prev_end_offset) = before.rfind(|c: char| !c.is_whitespace()) {
+                    let prev_end = prev_end_offset + 1;
+                    let prev_char = before.as_bytes()[prev_end_offset];
+                    // Only if previous char is a letter (not punctuation)
+                    if (prev_char as char).is_alphanumeric() {
+                        let prev_start = desc_lower[..prev_end]
+                            .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        let bigram = desc[prev_start..end].trim();
+                        if bigram.len() > word.len() + 1 && bigram.len() <= 60 {
+                            add_term(bigram);
+                        }
+                    }
                 }
 
                 pos = abs_idx + q_lower.len();
@@ -567,7 +612,13 @@ async fn suggest_terms_api(
         let mut suggestions: Vec<TermSuggestion> = term_counts
             .into_iter()
             .filter(|(_, count)| *count >= 2)
-            .map(|(term, count)| TermSuggestion { term, count })
+            .map(|(key, count)| {
+                // Pick the most frequent original-case form
+                let display = form_counts.get(&key)
+                    .and_then(|forms| forms.iter().max_by_key(|(_, c)| *c).map(|(f, _)| f.clone()))
+                    .unwrap_or(key);
+                TermSuggestion { term: display, count }
+            })
             .collect();
         suggestions.sort_by(|a, b| b.count.cmp(&a.count));
         suggestions.truncate(15);
