@@ -59,10 +59,10 @@ sdif search "QT-Verlängerung" -l 5
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
 - FI section references (e.g. "siehe «Kontraindikationen»") and isolated FI table headers (e.g. "Kontraindiziert!" at start of description) are stripped before scoring to avoid false Severity 3
-- Context extraction scans **all occurrences** of a substance and picks the snippet with the highest severity
+- Context extraction scans **all occurrences** of a substance and picks the snippet with the highest severity; snippets where the substance appears after "Tiermodell"/"Tierstudie"/"Tierversuch" are deprioritized (animal model references for other interaction partners)
 - 3 = **Kontraindiziert** (`###`): "kontraindiziert", "darf nicht", "nicht angewendet werden"
 - 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "nephrotoxisch", "hepatotoxisch", "niereninsuffizienz", "nierenfunktionsstörung", "abgeraten", "wird nicht empfohlen", "lymphoproliferation"
-- 1 = **Vorsicht** (`#`): "vorsicht", "überwach", "dosisanpassung", "verstärkt", "plasmaspiegel", "subtherapeutisch", "therapieversagen"
+- 1 = **Vorsicht** (`#`): "vorsicht", "überwach", "dosisanpassung", "verstärkt", "erhöh" (stem), "plasmaspiegel", "plasmakonzentration", "subtherapeutisch", "therapieversagen"
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
 ## Database schema (interactions.db)

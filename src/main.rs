@@ -422,6 +422,14 @@ fn strip_html(html: &str) -> String {
             result.push(ch);
         }
     }
+    // Decode HTML entities
+    let result = result
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ");
+    let entity_re = Regex::new(r"&#\d+;").unwrap();
+    let result = entity_re.replace_all(&result, " ");
     let ws_re = Regex::new(r"\s+").unwrap();
     ws_re.replace_all(&result, " ").trim().to_string()
 }
@@ -1097,11 +1105,12 @@ pub fn score_severity(text: &str) -> (u8, &'static str) {
         "verstärkt",
         "vermindert",
         "abgeschwächt",
-        "erhöht",
+        "erhöh",
         "erniedrigt",
         "beeinflusst",
         "wechselwirkung",
         "plasmaspiegel",
+        "plasmakonzentration",
         "serumkonzentration",
         "bioverfügbarkeit",
         "subtherapeutisch",
@@ -1144,6 +1153,7 @@ fn extract_context(text: &str, substance: &str) -> String {
     let lower = text.to_lowercase();
     let mut best_snippet = String::new();
     let mut best_severity: u8 = 0;
+    let mut best_is_animal = false;
     let mut search_from = 0;
 
     while let Some(rel_pos) = lower[search_from..].find(substance) {
@@ -1160,8 +1170,23 @@ fn extract_context(text: &str, substance: &str) -> String {
         let snippet = text[start..end.min(text.len())].trim();
         let (sev, _) = score_severity(snippet);
 
-        if sev > best_severity || best_snippet.is_empty() {
-            best_severity = sev;
+        // Deprioritize snippets where the substance appears after "Tiermodell" —
+        // this indicates the substance is mentioned incidentally in an animal study
+        // reference for a different interaction partner (e.g. Verapamil+Dantrolen
+        // animal model cited in Amlodipin FI, falsely attributed to Amlodipin↔Verapamil)
+        let prefix_lower = &lower[start..pos];
+        let is_animal_model = prefix_lower.contains("tiermodell")
+            || prefix_lower.contains("tierstudie")
+            || prefix_lower.contains("tierversuch");
+        let effective_sev = if is_animal_model { 0 } else { sev };
+
+        let dominated = effective_sev > best_severity
+            || (effective_sev == best_severity && best_is_animal && !is_animal_model)
+            || best_snippet.is_empty();
+
+        if dominated {
+            best_severity = effective_sev;
+            best_is_animal = is_animal_model;
             best_snippet = if snippet.len() > 500 {
                 let mut trunc = 497;
                 while !snippet.is_char_boundary(trunc) && trunc > 0 {
