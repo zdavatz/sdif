@@ -94,7 +94,7 @@ python3 generate_stats.py
 - Frontend: vanilla HTML/CSS/JS, no build step
 - Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty
 - With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
-- Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text
+- Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text, UTF-8 safe char boundary handling for multi-byte characters (e.g. em-dash «–»)
 
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`

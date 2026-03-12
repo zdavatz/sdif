@@ -699,7 +699,13 @@ async fn suggest_terms_api(
                 // Expand to word boundaries (include hyphenated/compound words)
                 let start = desc_lower[..abs_idx]
                     .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
-                    .map(|i| i + 1)
+                    .map(|i| {
+                        let mut j = i + 1;
+                        while j < desc_lower.len() && !desc_lower.is_char_boundary(j) {
+                            j += 1;
+                        }
+                        j
+                    })
                     .unwrap_or(0);
                 let end = desc_lower[abs_idx..]
                     .find(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',' || c == '.' || c == ';')
@@ -733,13 +739,20 @@ async fn suggest_terms_api(
                 // Also look for the previous word before the current match
                 let before = &desc_lower[..start];
                 if let Some(prev_end_offset) = before.rfind(|c: char| !c.is_whitespace()) {
-                    let prev_end = prev_end_offset + 1;
-                    let prev_char = before.as_bytes()[prev_end_offset];
+                    let prev_char = before[prev_end_offset..].chars().next().unwrap();
+                    let prev_end = prev_end_offset + prev_char.len_utf8();
                     // Only if previous char is a letter (not punctuation)
-                    if (prev_char as char).is_alphanumeric() {
+                    if prev_char.is_alphanumeric() {
                         let prev_start = desc_lower[..prev_end]
                             .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
-                            .map(|i| i + 1)
+                            .map(|i| {
+                                // Advance past the matched char to the next char boundary
+                                let mut j = i + 1;
+                                while j < desc_lower.len() && !desc_lower.is_char_boundary(j) {
+                                    j += 1;
+                                }
+                                j
+                            })
                             .unwrap_or(0);
                         let bigram = desc[prev_start..end].trim();
                         if bigram.len() > word.len() + 1 && bigram.len() <= 60 {
