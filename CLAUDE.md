@@ -58,7 +58,7 @@ sdif search "QT-Verlängerung" -l 5
 
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
-- FI section references (e.g. "siehe «Kontraindikationen»") are stripped before scoring to avoid false Severity 3 — these are rubric cross-references, not contraindication statements
+- FI section references (e.g. "siehe «Kontraindikationen»") and isolated FI table headers (e.g. "Kontraindiziert!" at start of description) are stripped before scoring to avoid false Severity 3
 - Context extraction scans **all occurrences** of a substance and picks the snippet with the highest severity
 - 3 = **Kontraindiziert** (`###`): "kontraindiziert", "darf nicht", "nicht angewendet werden"
 - 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "nephrotoxisch", "hepatotoxisch", "niereninsuffizienz", "nierenfunktionsstörung", "abgeraten", "wird nicht empfohlen", "lymphoproliferation"

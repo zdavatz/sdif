@@ -936,14 +936,20 @@ fn extract_interactions(drugs: &[Drug]) -> Result<Vec<Interaction>> {
 ///   2 = "Schwerwiegend"   — serious risk, avoid if possible
 ///   1 = "Vorsicht"        — use with caution, monitor
 ///   0 = "Keine Einstufung" — no severity keywords found
-/// Strip section references that mention contraindication keywords but are
-/// just cross-references to FI rubrics, not actual contraindication statements.
-/// E.g. "siehe «Kontraindikationen»", "(siehe Rubrik Kontraindikationen)"
+/// Strip section references and isolated labels that mention contraindication
+/// keywords but are not actual contraindication statements.
+/// E.g. "siehe «Kontraindikationen»", "(siehe Rubrik Kontraindikationen)",
+/// "Kontraindiziert!" as an isolated FI table header/label
 fn strip_section_references(text: &str) -> String {
     // First normalize: remove guillemets «» so "siehe «Kontraindikationen»" becomes
     // "siehe Kontraindikationen" for easier pattern matching
     let normalized = text.replace('\u{ab}', "").replace('\u{bb}', ""); // « and »
     let mut result = normalized;
+    // Strip isolated "Kontraindiziert!" labels (FI table headers, not clinical statements)
+    // These appear as "kontraindiziert! <substance>" at the start of a description
+    if result.starts_with("kontraindiziert!") {
+        result = result["kontraindiziert!".len()..].trim_start().to_string();
+    }
     // Common FI cross-reference patterns (already lowercased input)
     let patterns = [
         "siehe kontraindikation",
