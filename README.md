@@ -11,7 +11,7 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 3. Extracts active substance names from ATC codes (German names), with fallback to the Zusammensetzung/Wirkstoffe HTML section when the ATC column lacks substance names
 4. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
 5. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
-6. Scores severity of each interaction by scanning for German clinical keywords
+6. Scores severity of each interaction by scanning for German clinical keywords (FI section references like "siehe «Kontraindikationen»" are stripped to avoid false severity upgrades)
 7. Generates `interactions.db` with pre-computed interaction records
 
 ### Interaction detection strategies

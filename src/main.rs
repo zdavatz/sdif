@@ -936,8 +936,48 @@ fn extract_interactions(drugs: &[Drug]) -> Result<Vec<Interaction>> {
 ///   2 = "Schwerwiegend"   — serious risk, avoid if possible
 ///   1 = "Vorsicht"        — use with caution, monitor
 ///   0 = "Keine Einstufung" — no severity keywords found
+/// Strip section references that mention contraindication keywords but are
+/// just cross-references to FI rubrics, not actual contraindication statements.
+/// E.g. "siehe «Kontraindikationen»", "(siehe Rubrik Kontraindikationen)"
+fn strip_section_references(text: &str) -> String {
+    // First normalize: remove guillemets «» so "siehe «Kontraindikationen»" becomes
+    // "siehe Kontraindikationen" for easier pattern matching
+    let normalized = text.replace('\u{ab}', "").replace('\u{bb}', ""); // « and »
+    let mut result = normalized;
+    // Common FI cross-reference patterns (already lowercased input)
+    let patterns = [
+        "siehe kontraindikation",
+        "siehe rubrik kontraindikation",
+        "siehe abschnitt kontraindikation",
+        "siehe auch kontraindikation",
+        "siehe auch rubrik kontraindikation",
+        "siehe kapitel kontraindikation",
+    ];
+    for pat in &patterns {
+        // Find and blank out the whole reference including surrounding ()
+        while let Some(pos) = result.find(pat) {
+            // Expand backwards to include opening (
+            let start = if pos > 0 {
+                let prev = &result[..pos];
+                if prev.ends_with('(') { pos - 1 } else { pos }
+            } else { pos };
+            // Expand forwards to end of reference (next sentence boundary or closing bracket)
+            let rest = &result[pos..];
+            let end = rest.find(|c: char| c == '.' || c == ';' || c == ')' || c == '\n')
+                .map(|i| pos + i + 1)
+                .unwrap_or(result.len());
+            result.replace_range(start..end, " ");
+        }
+    }
+    result
+}
+
 pub fn score_severity(text: &str) -> (u8, &'static str) {
     let lower = text.to_lowercase();
+
+    // Strip section references before scoring — "siehe «Kontraindikationen»"
+    // refers to an FI rubric, not an actual contraindication statement
+    let stripped = strip_section_references(&lower);
 
     // Level 3: Contraindicated
     let contraindicated = [
@@ -956,7 +996,7 @@ pub fn score_severity(text: &str) -> (u8, &'static str) {
         "nicht anwenden",
     ];
     for kw in &contraindicated {
-        if lower.contains(kw) {
+        if stripped.contains(kw) {
             return (3, "Kontraindiziert");
         }
     }
