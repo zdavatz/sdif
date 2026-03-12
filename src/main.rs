@@ -772,6 +772,76 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
     Ok(drugs)
 }
 
+/// Derive the administration route from ATC code and brand name.
+/// Returns a short label: "topisch", "p.o.", "i.v.", "s.c.", "i.m.", "inhalativ", "nasal", "rektal", "ophthalm.", "otisch", or "".
+fn derive_route(atc_code: &str, brand_name: &str) -> &'static str {
+    let name = brand_name.to_lowercase();
+
+    // ATC-based topical routes
+    if atc_code.starts_with("D") && !atc_code.starts_with("D05BB") && !atc_code.starts_with("D05BX") {
+        // D = Dermatika, except D05BB/D05BX = systemische Antipsoriatika
+        return "topisch";
+    }
+    if atc_code.starts_with("C05BA") || atc_code.starts_with("C05BB") {
+        return "topisch"; // topische Heparinoide/Vasoprotektoren
+    }
+    if atc_code.starts_with("S01") {
+        return "ophthalm.";
+    }
+    if atc_code.starts_with("S02") {
+        return "otisch";
+    }
+    if atc_code.starts_with("S03") {
+        return "ophthalm."; // Ophthalmologische und otologische
+    }
+    if atc_code.starts_with("A01A") {
+        return "topisch"; // Stomatologika
+    }
+
+    // Brand name patterns (more specific first)
+    if name.contains("infusion") || name.contains(" i.v.") || name.contains(",i.v.") || name.contains("konzentrat zur herstellung") {
+        return "i.v.";
+    }
+    if name.contains(" s.c.") || name.contains("subkutan") || name.contains("fertigspritze") || name.contains("fertigpen") || name.contains("pen ") {
+        return "s.c.";
+    }
+    if name.contains(" i.m.") || name.contains("intramuskulär") {
+        return "i.m.";
+    }
+    if name.contains(" gel") || name.contains(" creme") || name.contains(" cream") || name.contains(" salbe") || name.contains(" paste") || name.contains(" pflaster") || name.contains(" patch") {
+        return "topisch";
+    }
+    if name.contains("inhalat") || name.contains("dosieraerosol") || name.contains("turbuhaler") || name.contains("diskus") || name.contains("breezhaler") || name.contains("pulverinhalat") {
+        return "inhalativ";
+    }
+    if name.contains("nasenspray") || name.contains("nasenlösung") || name.contains("rhinospray") {
+        return "nasal";
+    }
+    if name.contains("suppositor") || name.contains("rektal") || name.contains("klysma") {
+        return "rektal";
+    }
+    if name.contains("augentropfen") || name.contains("augensalbe") || name.contains("ophtha") {
+        return "ophthalm.";
+    }
+    if name.contains("ohrentropfen") {
+        return "otisch";
+    }
+
+    // ATC-based nasal/inhalativ
+    if atc_code.starts_with("R01") {
+        return "nasal";
+    }
+    if atc_code.starts_with("R03") {
+        if name.contains("tabletten") || name.contains("lösung zum einnehmen") || name.contains("sirup") {
+            return "p.o.";
+        }
+        return "inhalativ";
+    }
+
+    // Default: most drugs are oral
+    ""
+}
+
 fn build_substance_brand_map(drugs: &[Drug]) -> HashMap<String, Vec<String>> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
     for drug in drugs {
@@ -1067,7 +1137,8 @@ fn write_interactions_db(
             atc_code TEXT,
             atc_class TEXT,
             active_substances TEXT NOT NULL,
-            interactions_text TEXT
+            interactions_text TEXT,
+            route TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX idx_drugs_brand ON drugs(brand_name);
         CREATE INDEX idx_drugs_atc ON drugs(atc_code);
@@ -1087,7 +1158,8 @@ fn write_interactions_db(
 
         CREATE TABLE substance_brand_map (
             substance TEXT NOT NULL,
-            brand_name TEXT NOT NULL
+            brand_name TEXT NOT NULL,
+            route TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX idx_sbm_substance ON substance_brand_map(substance);
         CREATE INDEX idx_sbm_brand ON substance_brand_map(brand_name);
@@ -1130,9 +1202,10 @@ fn write_interactions_db(
 
     {
         let mut stmt = conn.prepare(
-            "INSERT INTO drugs (id, brand_name, atc_code, atc_class, active_substances, interactions_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO drugs (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
         for drug in drugs {
+            let route = derive_route(&drug.atc_code, &drug.title);
             stmt.execute(params![
                 drug.id,
                 drug.title,
@@ -1140,6 +1213,7 @@ fn write_interactions_db(
                 drug.atc_class,
                 drug.active_substances.join(", "),
                 drug.interactions_text,
+                route,
             ])?;
         }
     }
@@ -1170,10 +1244,14 @@ fn write_interactions_db(
 
     {
         let mut stmt = conn
-            .prepare("INSERT INTO substance_brand_map (substance, brand_name) VALUES (?1, ?2)")?;
+            .prepare("INSERT INTO substance_brand_map (substance, brand_name, route) VALUES (?1, ?2, ?3)")?;
+        let brand_route: HashMap<&str, &str> = drugs.iter()
+            .map(|d| (d.title.as_str(), derive_route(&d.atc_code, &d.title)))
+            .collect();
         for (substance, brands) in substance_to_brands {
             for brand in brands {
-                stmt.execute(params![substance, brand])?;
+                let route = brand_route.get(brand.as_str()).copied().unwrap_or("");
+                stmt.execute(params![substance, brand, route])?;
             }
         }
     }

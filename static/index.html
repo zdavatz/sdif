@@ -68,6 +68,7 @@
   .interaction-desc.expanded { max-height: none; }
   .expand-btn { font-size: 0.8rem; color: #2563eb; cursor: pointer; margin-top: 4px; display: inline-block; }
   .fi-quality-hint { font-size: 0.78rem; color: #b45309; background: #fef3c7; padding: 3px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; }
+  .route-badge { font-size: 0.7rem; color: #6b7280; font-weight: 400; }
 
   /* Search tab */
   .search-results-count { color: #666; font-size: 0.9rem; margin-bottom: 12px; }
@@ -346,7 +347,7 @@ function renderInteraction(ix) {
   const explanation = ix.explanation ? `<div class="interaction-explanation">${esc(ix.explanation)}</div>` : '';
   return `<div class="interaction-card sev-${ix.severity_score}">
     <div class="interaction-header">
-      <span class="interaction-drugs">${esc(ix.drug_a)} [${esc(ix.drug_a_atc)}] &harr; ${esc(ix.drug_b)} [${esc(ix.drug_b_atc)}]</span>
+      <span class="interaction-drugs">${esc(ix.drug_a)} [${esc(ix.drug_a_atc)}]${routeBadge(ix.drug_a_route)} &harr; ${esc(ix.drug_b)} [${esc(ix.drug_b_atc)}]${routeBadge(ix.drug_b_route)}</span>
       <span class="interaction-badge badge-${ix.severity_score}">${ix.severity_indicator} ${esc(ix.severity_label)}</span>
       ${sourceBadge}
     </div>
@@ -434,36 +435,70 @@ async function suggestTerms(q) {
   });
 }
 
-async function searchInteractions(term) {
+let searchShown = 0;
+let searchTotal = 0;
+let searchTerm = '';
+const SEARCH_PAGE = 50;
+
+async function searchInteractions(term, append) {
   searchAc.style.display = 'none';
   const resultsEl = document.getElementById('search-results');
-  resultsEl.innerHTML = '<div class="loading">Suche...</div>';
-  const res = await fetch('/api/search-interactions?term=' + encodeURIComponent(term) + '&limit=50');
+  if (!append) {
+    resultsEl.innerHTML = '<div class="loading">Suche...</div>';
+    searchShown = 0;
+  }
+  searchTerm = term;
+  const res = await fetch('/api/search-interactions?term=' + encodeURIComponent(term) + '&limit=' + SEARCH_PAGE + '&offset=' + searchShown);
   const data = await res.json();
+  searchTotal = data.total;
 
-  if (!data.results.length) {
+  if (!data.results.length && !append) {
     resultsEl.innerHTML = '<div class="no-results">Keine Ergebnisse für &quot;' + esc(term) + '&quot;.</div>';
     return;
   }
 
-  resultsEl.innerHTML = `<p class="search-results-count">${data.total} Interaktionen gefunden${data.total > 50 ? ' (Top 50 angezeigt)' : ''}</p>` +
-    data.results.map(r => {
-      const brandInfo = r.interacting_brand ? ` (${esc(r.interacting_brand)})` : '';
-      const srcBadge = !r.source ? '' :
-        r.source === 'EPha'
-        ? '<span class="source-badge source-epha">EPha</span>'
-        : '<span class="source-badge source-fi">Swissmedic FI</span>';
-      return `<div class="interaction-card sev-${r.severity_score}">
-        <div class="interaction-header">
-          <span class="interaction-drugs">${esc(r.drug_brand)} &harr; ${esc(r.interacting_substance)}${brandInfo}</span>
-          <span class="interaction-badge badge-${r.severity_score}">${r.severity_indicator} ${esc(r.severity_label)}</span>
-          ${srcBadge}
-        </div>
-        <div class="interaction-desc">${decodeAndEsc(r.description)}</div>
-        <span class="expand-btn">mehr anzeigen</span>
-      </div>`;
-    }).join('');
+  searchShown += data.results.length;
+  const cards = data.results.map(renderSearchCard).join('');
+
+  if (append) {
+    // Remove old load-more button, append new cards
+    const oldBtn = resultsEl.querySelector('.load-more-btn');
+    if (oldBtn) oldBtn.remove();
+    resultsEl.insertAdjacentHTML('beforeend', cards);
+  } else {
+    resultsEl.innerHTML = `<p class="search-results-count">${data.total} Interaktionen gefunden${data.total > searchShown ? ' (' + searchShown + ' angezeigt)' : ''}</p>` + cards;
+  }
+
+  // Update count text
+  const countEl = resultsEl.querySelector('.search-results-count');
+  if (countEl) {
+    countEl.textContent = data.total + ' Interaktionen gefunden' + (data.total > searchShown ? ' (' + searchShown + ' angezeigt)' : '');
+  }
+
+  // Add load-more button if there are more results
+  if (searchShown < searchTotal) {
+    resultsEl.insertAdjacentHTML('beforeend', '<button class="btn btn-primary load-more-btn" style="display:block;margin:16px auto;">mehr anzeigen</button>');
+    resultsEl.querySelector('.load-more-btn').addEventListener('click', () => searchInteractions(searchTerm, true));
+  }
+
   attachExpandHandlers();
+}
+
+function renderSearchCard(r) {
+  const brandInfo = r.interacting_brand ? ` (${esc(r.interacting_brand)})` : '';
+  const srcBadge = !r.source ? '' :
+    r.source === 'EPha'
+    ? '<span class="source-badge source-epha">EPha</span>'
+    : '<span class="source-badge source-fi">Swissmedic FI</span>';
+  return `<div class="interaction-card sev-${r.severity_score}">
+    <div class="interaction-header">
+      <span class="interaction-drugs">${esc(r.drug_brand)}${routeBadge(r.drug_route)} &harr; ${esc(r.interacting_substance)}${brandInfo}${routeBadge(r.interacting_route)}</span>
+      <span class="interaction-badge badge-${r.severity_score}">${r.severity_indicator} ${esc(r.severity_label)}</span>
+      ${srcBadge}
+    </div>
+    <div class="interaction-desc">${decodeAndEsc(r.description)}</div>
+    <span class="expand-btn">mehr anzeigen</span>
+  </div>`;
 }
 
 function attachExpandHandlers() {
@@ -478,6 +513,11 @@ function attachExpandHandlers() {
       });
     }
   });
+}
+
+function routeBadge(route) {
+  if (!route) return '';
+  return ` <span class="route-badge">(${esc(route)})</span>`;
 }
 
 function esc(s) {

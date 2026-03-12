@@ -13,6 +13,29 @@ use std::sync::Arc;
 
 use crate::{find_class_interactions, find_cyp_interactions, load_class_keywords, load_cyp_rules, score_severity, severity_indicator};
 
+/// Route priority for sorting: systemic routes first, topical last.
+/// Lower value = higher priority (shown first).
+fn route_priority(route_a: &str, route_b: &str) -> u8 {
+    fn single(r: &str) -> u8 {
+        match r {
+            "" => 0,         // systemisch/unbekannt (most likely oral)
+            "p.o." => 0,
+            "i.v." => 0,
+            "s.c." => 1,
+            "i.m." => 1,
+            "inhalativ" => 2,
+            "nasal" => 3,
+            "rektal" => 3,
+            "ophthalm." => 4,
+            "otisch" => 4,
+            "topisch" => 5,
+            _ => 3,
+        }
+    }
+    // Use the worse (higher) route priority of the pair
+    single(route_a).max(single(route_b))
+}
+
 struct AppState {
     db_path: String,
     epha: bool,
@@ -156,8 +179,10 @@ struct BasketDrugInfo {
 struct InteractionResult {
     drug_a: String,
     drug_a_atc: String,
+    drug_a_route: String,
     drug_b: String,
     drug_b_atc: String,
+    drug_b_route: String,
     interaction_type: String, // "substance", "class-level", "CYP", "epha"
     severity_score: u8,
     severity_label: String,
@@ -173,6 +198,7 @@ struct BasketDrug {
     substances: Vec<String>,
     atc_code: String,
     interactions_text: String,
+    route: String,
 }
 
 fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
@@ -180,7 +206,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
     // Try brand name first
     let mut stmt = conn
         .prepare(
-            "SELECT brand_name, active_substances, atc_code, interactions_text \
+            "SELECT brand_name, active_substances, atc_code, interactions_text, COALESCE(route, '') \
              FROM drugs WHERE brand_name LIKE ?1 ORDER BY length(interactions_text) DESC",
         )
         .ok()?;
@@ -190,6 +216,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
         let substances_str: String = row.get(1).ok()?;
         let atc_code: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
         let interactions_text: String = row.get::<_, Option<String>>(3).ok()?.unwrap_or_default();
+        let route: String = row.get(4).ok()?;
         let substances: Vec<String> = substances_str
             .split(", ")
             .map(|s| s.to_lowercase())
@@ -199,6 +226,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
             substances,
             atc_code,
             interactions_text,
+            route,
         });
     }
     drop(rows);
@@ -206,7 +234,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
     // Try substance name
     let mut stmt2 = conn
         .prepare(
-            "SELECT DISTINCT d.brand_name, d.active_substances, d.atc_code, d.interactions_text \
+            "SELECT DISTINCT d.brand_name, d.active_substances, d.atc_code, d.interactions_text, COALESCE(d.route, '') \
              FROM substance_brand_map s JOIN drugs d ON d.brand_name = s.brand_name \
              WHERE s.substance LIKE ?1 ORDER BY length(d.interactions_text) DESC LIMIT 1",
         )
@@ -218,6 +246,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
         let substances_str: String = row.get(1).ok()?;
         let atc_code: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
         let interactions_text: String = row.get::<_, Option<String>>(3).ok()?.unwrap_or_default();
+        let route: String = row.get(4).ok()?;
         let substances: Vec<String> = substances_str
             .split(", ")
             .map(|s| s.to_lowercase())
@@ -227,6 +256,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
             substances,
             atc_code,
             interactions_text,
+            route,
         });
     }
     None
@@ -283,8 +313,10 @@ async fn check_interactions(
                         interactions.push(InteractionResult {
                             drug_a: a.brand.clone(),
                             drug_a_atc: a.atc_code.clone(),
+                            drug_a_route: a.route.clone(),
                             drug_b: b.brand.clone(),
                             drug_b_atc: b.atc_code.clone(),
+                            drug_b_route: b.route.clone(),
                             interaction_type: "substance".to_string(),
                             severity_score: sev_score,
                             severity_label: sev_label,
@@ -312,8 +344,10 @@ async fn check_interactions(
                         interactions.push(InteractionResult {
                             drug_a: b.brand.clone(),
                             drug_a_atc: b.atc_code.clone(),
+                            drug_a_route: b.route.clone(),
                             drug_b: a.brand.clone(),
                             drug_b_atc: a.atc_code.clone(),
+                            drug_b_route: a.route.clone(),
                             interaction_type: "substance".to_string(),
                             severity_score: sev_score,
                             severity_label: sev_label,
@@ -333,8 +367,10 @@ async fn check_interactions(
                     interactions.push(InteractionResult {
                         drug_a: a.brand.clone(),
                         drug_a_atc: a.atc_code.clone(),
+                        drug_a_route: a.route.clone(),
                         drug_b: b.brand.clone(),
                         drug_b_atc: b.atc_code.clone(),
+                        drug_b_route: b.route.clone(),
                         interaction_type: "class-level".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
@@ -352,8 +388,10 @@ async fn check_interactions(
                     interactions.push(InteractionResult {
                         drug_a: b.brand.clone(),
                         drug_a_atc: b.atc_code.clone(),
+                        drug_a_route: b.route.clone(),
                         drug_b: a.brand.clone(),
                         drug_b_atc: a.atc_code.clone(),
+                        drug_b_route: a.route.clone(),
                         interaction_type: "class-level".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
@@ -372,8 +410,10 @@ async fn check_interactions(
                     interactions.push(InteractionResult {
                         drug_a: a.brand.clone(),
                         drug_a_atc: a.atc_code.clone(),
+                        drug_a_route: a.route.clone(),
                         drug_b: b.brand.clone(),
                         drug_b_atc: b.atc_code.clone(),
+                        drug_b_route: b.route.clone(),
                         interaction_type: "CYP".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
@@ -390,8 +430,10 @@ async fn check_interactions(
                     interactions.push(InteractionResult {
                         drug_a: b.brand.clone(),
                         drug_a_atc: b.atc_code.clone(),
+                        drug_a_route: b.route.clone(),
                         drug_b: a.brand.clone(),
                         drug_b_atc: a.atc_code.clone(),
+                        drug_b_route: a.route.clone(),
                         interaction_type: "CYP".to_string(),
                         severity_score: sev_score,
                         severity_label: sev_label.to_string(),
@@ -428,8 +470,10 @@ async fn check_interactions(
                     interactions.push(InteractionResult {
                         drug_a: a.brand.clone(),
                         drug_a_atc: a.atc_code.clone(),
+                        drug_a_route: a.route.clone(),
                         drug_b: b.brand.clone(),
                         drug_b_atc: b.atc_code.clone(),
+                        drug_b_route: b.route.clone(),
                         interaction_type: "epha".to_string(),
                         severity_score: sev_score,
                         severity_label: risk_label,
@@ -444,8 +488,12 @@ async fn check_interactions(
             }
         }
 
-        // Sort by severity descending
-        interactions.sort_by(|a, b| b.severity_score.cmp(&a.severity_score));
+        // Sort by severity descending, then prefer systemic (empty route) over topical
+        interactions.sort_by(|a, b| {
+            b.severity_score.cmp(&a.severity_score)
+                .then_with(|| route_priority(&a.drug_a_route, &a.drug_b_route)
+                    .cmp(&route_priority(&b.drug_a_route, &b.drug_b_route)))
+        });
 
         Ok(CheckResponse {
             basket,
@@ -466,13 +514,16 @@ async fn check_interactions(
 struct SearchQuery {
     term: String,
     limit: Option<usize>,
+    offset: Option<usize>,
 }
 
 #[derive(Serialize)]
 struct SearchResult {
     drug_brand: String,
+    drug_route: String,
     interacting_substance: String,
     interacting_brand: String,
+    interacting_route: String,
     severity_score: u8,
     severity_label: String,
     severity_indicator: String,
@@ -503,54 +554,65 @@ async fn search_interactions_api(
             |row| row.get(0),
         )?;
 
-        let sql = if query.limit.is_some() {
-            "SELECT drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label \
-             FROM interactions WHERE description LIKE ?1 ORDER BY severity_score DESC LIMIT ?2"
+        let offset = query.offset.unwrap_or(0);
+        let fetch_limit = query.limit.map(|l| l + offset);
+        let sql = if fetch_limit.is_some() {
+            "SELECT i.drug_brand, i.drug_substance, i.interacting_substance, i.interacting_brands, i.description, i.severity_score, i.severity_label, COALESCE(d.route, '') \
+             FROM interactions i LEFT JOIN drugs d ON d.brand_name = i.drug_brand \
+             WHERE i.description LIKE ?1 ORDER BY i.severity_score DESC LIMIT ?2"
         } else {
-            "SELECT drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label \
-             FROM interactions WHERE description LIKE ?1 ORDER BY severity_score DESC"
+            "SELECT i.drug_brand, i.drug_substance, i.interacting_substance, i.interacting_brands, i.description, i.severity_score, i.severity_label, COALESCE(d.route, '') \
+             FROM interactions i LEFT JOIN drugs d ON d.brand_name = i.drug_brand \
+             WHERE i.description LIKE ?1 ORDER BY i.severity_score DESC"
         };
 
+        // Prepare statement to find best brand for a substance (prefer systemic over topical)
+        let mut best_brand_stmt = conn.prepare(
+            "SELECT brand_name, route FROM substance_brand_map WHERE substance = ?1 ORDER BY CASE WHEN route = '' THEN 0 WHEN route = 'p.o.' THEN 1 WHEN route = 'i.v.' THEN 2 WHEN route = 's.c.' THEN 3 WHEN route = 'i.m.' THEN 4 ELSE 9 END LIMIT 1"
+        )?;
+
         let mut stmt = conn.prepare(sql)?;
-        let rows: Vec<SearchResult> = if let Some(lim) = query.limit {
-            stmt.query_map(params![pattern, lim], |row| {
-                let interacting_brands: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-                let first_brand = interacting_brands.split(", ").next().unwrap_or("").to_string();
-                Ok(SearchResult {
-                    drug_brand: row.get(0)?,
-                    interacting_substance: row.get(2)?,
-                    interacting_brand: first_brand,
-                    severity_score: row.get(5)?,
-                    severity_label: row.get(6)?,
-                    severity_indicator: severity_indicator(row.get::<_, u8>(5)?).to_string(),
-                    description: row.get(4)?,
-                    source: fi_source.clone(),
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect()
-        } else {
-            stmt.query_map(params![pattern], |row| {
-                let interacting_brands: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-                let first_brand = interacting_brands.split(", ").next().unwrap_or("").to_string();
-                Ok(SearchResult {
-                    drug_brand: row.get(0)?,
-                    interacting_substance: row.get(2)?,
-                    interacting_brand: first_brand,
-                    severity_score: row.get(5)?,
-                    severity_label: row.get(6)?,
-                    severity_indicator: severity_indicator(row.get::<_, u8>(5)?).to_string(),
-                    description: row.get(4)?,
-                    source: fi_source.clone(),
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect()
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<(SearchResult, String)> {
+            let interacting_substance: String = row.get(2)?;
+            let drug_route: String = row.get(7)?;
+            Ok((SearchResult {
+                drug_brand: row.get(0)?,
+                drug_route: drug_route,
+                interacting_substance: interacting_substance,
+                interacting_brand: String::new(), // filled below
+                interacting_route: String::new(), // filled below
+                severity_score: row.get(5)?,
+                severity_label: row.get(6)?,
+                severity_indicator: severity_indicator(row.get::<_, u8>(5)?).to_string(),
+                description: row.get(4)?,
+                source: fi_source.clone(),
+            }, row.get::<_, String>(2)?)) // interacting_substance for lookup
         };
+
+        let partial: Vec<(SearchResult, String)> = if let Some(fl) = fetch_limit {
+            stmt.query_map(params![pattern, fl], map_row)?
+                .filter_map(|r| r.ok())
+                .collect()
+        } else {
+            stmt.query_map(params![pattern], map_row)?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+
+        let rows: Vec<SearchResult> = partial.into_iter().map(|(mut sr, subst)| {
+            if let Ok(Some(row)) = best_brand_stmt.query_row(
+                params![subst.to_lowercase()],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            ).map(Some).or_else(|_| Ok::<_, anyhow::Error>(None)) {
+                sr.interacting_brand = row.0;
+                sr.interacting_route = row.1;
+            }
+            sr
+        }).collect();
 
         // Also search EPha interactions (if enabled)
         let (epha_rows, epha_total) = if epha_enabled {
-            let epha_sql = if query.limit.is_some() {
+            let epha_sql = if fetch_limit.is_some() {
                 "SELECT title, effect, mechanism, measures, risk_class, risk_label, severity_score \
                  FROM epha_interactions WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 \
                  ORDER BY severity_score DESC LIMIT ?2"
@@ -560,8 +622,8 @@ async fn search_interactions_api(
                  ORDER BY severity_score DESC"
             };
             let mut epha_stmt = conn.prepare(epha_sql)?;
-            let er: Vec<SearchResult> = if let Some(lim) = query.limit {
-                epha_stmt.query_map(params![pattern, lim], |row| {
+            let er: Vec<SearchResult> = if let Some(fl) = fetch_limit {
+                epha_stmt.query_map(params![pattern, fl], |row| {
                     let effect: String = row.get(1)?;
                     let mechanism: String = row.get(2)?;
                     let measures: String = row.get(3)?;
@@ -572,8 +634,10 @@ async fn search_interactions_api(
                     };
                     Ok(SearchResult {
                         drug_brand: row.get(0)?,
+                        drug_route: String::new(),
                         interacting_substance: String::new(),
                         interacting_brand: String::new(),
+                        interacting_route: String::new(),
                         severity_score: row.get(6)?,
                         severity_label: row.get(5)?,
                         severity_indicator: severity_indicator(row.get::<_, u8>(6)?).to_string(),
@@ -593,8 +657,10 @@ async fn search_interactions_api(
                     };
                     Ok(SearchResult {
                         drug_brand: row.get(0)?,
+                        drug_route: String::new(),
                         interacting_substance: String::new(),
                         interacting_brand: String::new(),
+                        interacting_route: String::new(),
                         severity_score: row.get(6)?,
                         severity_label: row.get(5)?,
                         severity_indicator: severity_indicator(row.get::<_, u8>(6)?).to_string(),
@@ -615,11 +681,21 @@ async fn search_interactions_api(
 
         let mut all_results = rows;
         all_results.extend(epha_rows);
-        all_results.sort_by(|a, b| b.severity_score.cmp(&a.severity_score));
+        all_results.sort_by(|a, b| {
+            b.severity_score.cmp(&a.severity_score)
+                .then_with(|| route_priority(&a.drug_route, &a.interacting_route)
+                    .cmp(&route_priority(&b.drug_route, &b.interacting_route)))
+        });
+
+        // Apply offset and limit on merged results
+        let paged: Vec<SearchResult> = all_results.into_iter()
+            .skip(offset)
+            .take(query.limit.unwrap_or(usize::MAX))
+            .collect();
 
         Ok(SearchResponse {
             total: total + epha_total,
-            results: all_results,
+            results: paged,
         })
     })
     .await;

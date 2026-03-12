@@ -65,9 +65,9 @@ sdif search "QT-Verlängerung" -l 5
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
 ## Database schema (interactions.db)
-- `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text)
+- `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route) — route derived from ATC code + brand name (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., otisch, rektal, i.m., or empty for default/oral)
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
-- `substance_brand_map` (substance, brand_name)
+- `substance_brand_map` (substance, brand_name, route)
 - `epha_interactions` (atc1, atc2, risk_class, risk_label, effect, mechanism, measures, title, severity_score) — EPha curated data, queried by ATC pair
 - `class_keywords` (atc_prefix, keyword) — ATC class keywords for class-level interaction detection, populated from `txt/keywords.txt` during build
 - `cyp_rules` (enzyme, text_pattern, role, atc_prefix, substance) — CYP450 inhibitor/inducer rules for enzyme-mediated interaction detection, populated during build
@@ -92,7 +92,7 @@ python3 generate_stats.py
 - `sdif serve` starts Axum web server, serves `static/index.html` via `include_str!`
 - API: `/api/search-drugs` (with `?q=` or `?atc=`), `/api/check`, `/api/search-interactions`, `/api/suggest-terms`, `/api/class-interactions`
 - Frontend: vanilla HTML/CSS/JS, no build step
-- Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty
+- Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, route indicators (topisch, i.v., s.c., etc.) next to drug names, systemic-first sorting within same severity, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, "mehr anzeigen" pagination in clinical search, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty
 - With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
 - Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text, UTF-8 safe char boundary handling for multi-byte characters (e.g. em-dash «–»)
 

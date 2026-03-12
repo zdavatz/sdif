@@ -67,9 +67,9 @@ The `check` command accepts both brand names (Ponstan, Marcoumar) and substance 
 
 Generates `db/interactions.db` with the following tables:
 
-- **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text
+- **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text, administration route (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., etc.)
 - **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
-- **substance_brand_map** — maps substance names to brand names
+- **substance_brand_map** — maps substance names to brand names with route indicator
 - **epha_interactions** — EPha curated ATC-pair interactions with risk class, effect, mechanism, and measures
 - **class_keywords** — ATC class keywords for class-level interaction detection (atc_prefix, keyword)
 - **cyp_rules** — CYP450 inhibitor/inducer rules for enzyme-mediated interaction detection (enzyme, text_pattern, role, atc_prefix, substance)
@@ -123,8 +123,8 @@ sdif serve -p 8080   # custom port
 ```
 
 Features:
-- **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, color-coded severity cards with explanations, FI quality hints for asymmetric severity between bidirectional pairs
-- **Klinische Suche**: Full-text search with type-ahead suggestions including bigram phrases (e.g. type "hormonale" to see "hormonale Kontrazeptivum (76)"), preserves original capitalization, UTF-8 safe char boundary handling, sorted by hit count
+- **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, color-coded severity cards with explanations, route indicators (topisch, i.v., s.c., inhalativ, etc.) next to drug names, systemic-first sorting within same severity, FI quality hints for asymmetric severity between bidirectional pairs
+- **Klinische Suche**: Full-text search with type-ahead suggestions including bigram phrases (e.g. type "hormonale" to see "hormonale Kontrazeptivum (76)"), preserves original capitalization, UTF-8 safe char boundary handling, route indicators on drugs, "mehr anzeigen" pagination (50 results per page), sorted by severity then route priority
 - **ATC-Klassen**: Overview of all 42 ATC class-level interaction mappings with sortable table
 - **Shareable URLs**: Basket state encoded as ATC codes in URL (e.g. `?tab=check&drugs=M01AG01-B01AA04-N02BA01`)
 
