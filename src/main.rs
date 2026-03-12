@@ -61,6 +61,7 @@ struct Drug {
     atc_class: String,
     active_substances: Vec<String>,
     interactions_text: String,
+    route: String,
 }
 
 #[derive(Debug, Clone)]
@@ -482,9 +483,28 @@ fn extract_interaction_section(content: &str) -> String {
             "potenzier", "neuromuskuläre blockade",
         ];
 
-        for sentence in text.split('.') {
+        // Strip section header before splitting into sentences
+        let body = if text.starts_with("Kontraindikationen") {
+            &text["Kontraindikationen".len()..]
+        } else if let Some(rest) = text.strip_prefix("Warnhinweise und Vorsichtsmassnahmen") {
+            rest
+        } else if let Some(rest) = text.strip_prefix("Warnhinweise") {
+            rest
+        } else if let Some(rest) = text.strip_prefix("Dosierung") {
+            rest
+        } else {
+            text.as_str()
+        };
+
+        // Split by periods, bullet markers (·), and en-dashes used as list separators
+        for sentence in body.split(|c: char| c == '.' || c == '\u{b7}' || c == '\n') {
             let sentence_lower = sentence.to_lowercase();
-            let mentions_interaction = interaction_keywords
+            // Skip "siehe «Interaktionen»" back-references — these are cross-refs
+            // to the Interaktionen section, not actual interaction content
+            let is_back_ref = sentence_lower.contains("siehe") && sentence_lower.contains("interaktion")
+                && !sentence_lower.contains("interaktion mit")
+                && !sentence_lower.contains("interaktionen von");
+            let mentions_interaction = !is_back_ref && interaction_keywords
                 .iter()
                 .any(|kw| sentence_lower.contains(kw));
             if mentions_interaction && sentence.len() > 20 {
@@ -754,6 +774,7 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
         }
 
         let interactions_text = extract_interaction_section(content);
+        let route = derive_route(&atc_code, title.trim(), content).to_string();
 
         if active_substances.is_empty() {
             continue;
@@ -766,6 +787,7 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
             atc_class: atc_class.clone(),
             active_substances,
             interactions_text,
+            route,
         });
     }
     eprintln!("\r  Parsing done.                    ");
@@ -782,13 +804,28 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
 
 /// Derive the administration route from ATC code and brand name.
 /// Returns a short label: "topisch", "p.o.", "i.v.", "s.c.", "i.m.", "inhalativ", "nasal", "rektal", "ophthalm.", "otisch", or "".
-fn derive_route(atc_code: &str, brand_name: &str) -> &'static str {
+fn derive_route(atc_code: &str, brand_name: &str, content: &str) -> &'static str {
     let name = brand_name.to_lowercase();
 
     // ATC-based topical routes
+    // D = Dermatika, except systemic formulations (oral tablets, capsules, injections)
     if atc_code.starts_with("D") && !atc_code.starts_with("D05BB") && !atc_code.starts_with("D05BX") {
-        // D = Dermatika, except D05BB/D05BX = systemische Antipsoriatika
-        return "topisch";
+        // Check brand name AND first part of FI content for oral/injectable keywords
+        let content_lower = &content[..content.len().min(3000)].to_lowercase();
+        let check = |kw: &str| name.contains(kw) || content_lower.contains(kw);
+        let is_oral = check("tabletten") || check("kapseln")
+            || check("filmtabletten") || check("weichkapseln")
+            || check("dragée") || name.contains("lösung zum einnehmen") || name.contains("sirup");
+        let is_injectable = check("injektionslösung") || check("infusionslösung")
+            || name.contains("fertigspritze") || name.contains("fertigpen")
+            || name.contains(" pen ") || name.contains(" pen,")
+            || name.contains("subkutan") || name.contains(" s.c.")
+            || name.contains(" i.v.") || name.contains(" i.m.")
+            || name.contains("konzentrat zur herstellung");
+        if !is_oral && !is_injectable {
+            return "topisch";
+        }
+        // Fall through to brand-name and default route detection
     }
     if atc_code.starts_with("C05BA") || atc_code.starts_with("C05BB") {
         return "topisch"; // topische Heparinoide/Vasoprotektoren
@@ -1295,7 +1332,6 @@ fn write_interactions_db(
             "INSERT INTO drugs (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
         for drug in drugs {
-            let route = derive_route(&drug.atc_code, &drug.title);
             let combo_hint = derive_combo_hint(&drug.title, &drug.atc_code, &drug.active_substances);
             stmt.execute(params![
                 drug.id,
@@ -1304,7 +1340,7 @@ fn write_interactions_db(
                 drug.atc_class,
                 drug.active_substances.join(", "),
                 drug.interactions_text,
-                route,
+                drug.route,
                 combo_hint,
             ])?;
         }
@@ -1338,7 +1374,7 @@ fn write_interactions_db(
         let mut stmt = conn
             .prepare("INSERT INTO substance_brand_map (substance, brand_name, route) VALUES (?1, ?2, ?3)")?;
         let brand_route: HashMap<&str, &str> = drugs.iter()
-            .map(|d| (d.title.as_str(), derive_route(&d.atc_code, &d.title)))
+            .map(|d| (d.title.as_str(), d.route.as_str()))
             .collect();
         for (substance, brands) in substance_to_brands {
             for brand in brands {

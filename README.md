@@ -2,16 +2,16 @@
 
 A Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database and EPha curated interaction data. It extracts interaction data from drug labels (Fachinformation) and enables basket-based interaction checking between drugs. Optionally includes EPha professionally graded ATC-pair interactions. Supports input by brand name or substance name.
 
-![SDIF Stats](sdif_swiss_drug_interactions_finder_stats_13h42-12.03.2026.png)
+![SDIF Stats](sdif_swiss_drug_interactions_finder_stats_21h49-12.03.2026.png)
 
 ## How it works
 
 1. Downloads and reads the AmiKo full-text database (`amiko_db_full_idx_de.db`)
 2. Downloads the official WHO ATC classification (`csv/atc.csv`) and EPha interactions (`csv/drug_interactions_csv_de.csv`) and cross-checks every drug's ATC code against the ATC classification
 3. Extracts active substance names from ATC codes (German names), with fallback to the Zusammensetzung/Wirkstoffe HTML section when the ATC column lacks substance names
-4. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung"
+4. Parses the "Interaktionen" chapter plus interaction-relevant sentences from "Warnhinweise und Vorsichtsmassnahmen", "Kontraindikationen" and "Dosierung" (section headers stripped, bullet-level splitting by `·` to avoid dragging entire sections into interaction text)
 5. Uses Aho-Corasick multi-pattern matching to find substance mentions across all interaction texts
-6. Scores severity of each interaction by scanning for German clinical keywords (FI section references like "siehe «Kontraindikationen»" and isolated FI table headers like "Kontraindiziert!" are stripped to avoid false severity upgrades)
+6. Scores severity of each interaction by scanning for German clinical keywords (FI section references like "siehe «Kontraindikationen»", isolated FI table headers like "Kontraindiziert!", and Kontraindikationen section headers are stripped to avoid false severity upgrades)
 7. Generates `interactions.db` with pre-computed interaction records
 
 ### Interaction detection strategies

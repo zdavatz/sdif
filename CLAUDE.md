@@ -35,12 +35,12 @@ sdif search "QT-Verlängerung" -l 5
 ### Key data flow
 1. Parse ATC column (`"M01AG01;Mefenaminsäure"`) for German substance names; fallback to Zusammensetzung/Wirkstoffe HTML section when ATC column has code but no substance name
 2. Cross-check ATC codes against `csv/atc.csv` (all levels: 1-digit to 7-digit); log mismatches (e.g. reclassified L01XX→L01E codes)
-3. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung"
+3. Extract "Interaktionen" HTML section + interaction-relevant sentences from "Warnhinweise", "Kontraindikationen", "Dosierung" (section headers stripped, bullet-level splitting by `·` to prevent section-header keywords like "Kontraindikationen" from inflating severity; "siehe «Interaktionen»" back-references skipped)
 4. Aho-Corasick multi-pattern match all known substances against interaction texts
 5. Store substance-level interactions with best-severity context snippets
 
 ### Interaction detection
-- **Substance-level**: Exact substance name match in interaction text (46,887 records, 17,504 unique substance pairs)
+- **Substance-level**: Exact substance name match in interaction text (46,440 records, 17,294 unique substance pairs)
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
   - Keywords defined in `txt/keywords.txt` and stored in `class_keywords` table during build
   - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
@@ -58,7 +58,7 @@ sdif search "QT-Verlängerung" -l 5
 
 ### Severity scoring
 - Keyword-based scoring of interaction descriptions (German text)
-- FI section references (e.g. "siehe «Kontraindikationen»") and isolated FI table headers (e.g. "Kontraindiziert!" at start of description) are stripped before scoring to avoid false Severity 3
+- FI section references (e.g. "siehe «Kontraindikationen»"), isolated FI table headers (e.g. "Kontraindiziert!" at start of description), and Kontraindikationen section headers in supplementary text are stripped before scoring to avoid false Severity 3
 - Context extraction scans **all occurrences** of a substance and picks the snippet with the highest severity; snippets where the substance appears after "Tiermodell"/"Tierstudie"/"Tierversuch" are deprioritized (animal model references for other interaction partners)
 - 3 = **Kontraindiziert** (`###`): "kontraindiziert", "darf nicht", "nicht angewendet werden"
 - 2 = **Schwerwiegend** (`##`): "erhöhtes risiko", "lebensbedrohlich", "toxizität", "nephrotoxisch", "hepatotoxisch", "niereninsuffizienz", "nierenfunktionsstörung", "abgeraten", "wird nicht empfohlen", "lymphoproliferation"
@@ -66,7 +66,7 @@ sdif search "QT-Verlängerung" -l 5
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
 ## Database schema (interactions.db)
-- `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) — route derived from ATC code + brand name (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., otisch, rektal, i.m., or empty for default/oral); combo_hint for approved combination therapies (e.g. Rivaroxaban vascular + ASS) and multi-substance products. Downstream apps can add `route` and `combo_hint` to their existing `SELECT ... FROM drugs` queries — no new table or JOIN needed
+- `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) — route derived from ATC code + brand name + FI content (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., otisch, rektal, i.m., or empty for default/oral); D-code drugs with oral/injectable formulation keywords in FI content (e.g. Weichkapseln, Injektionslösung) are correctly identified as systemic; combo_hint for approved combination therapies (e.g. Rivaroxaban vascular + ASS) and multi-substance products. Downstream apps can add `route` and `combo_hint` to their existing `SELECT ... FROM drugs` queries — no new table or JOIN needed
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
 - `substance_brand_map` (substance, brand_name, route)
 - `epha_interactions` (atc1, atc2, risk_class, risk_label, effect, mechanism, measures, title, severity_score) — EPha curated data, queried by ATC pair
