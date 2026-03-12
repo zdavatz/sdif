@@ -66,7 +66,7 @@ sdif search "QT-Verlängerung" -l 5
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
 ## Database schema (interactions.db)
-- `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route) — route derived from ATC code + brand name (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., otisch, rektal, i.m., or empty for default/oral). Downstream apps (oddb.org, generikacc, generika_android, amiko-web) can add `route` to their existing `SELECT ... FROM drugs` queries — no new table or JOIN needed
+- `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) — route derived from ATC code + brand name (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., otisch, rektal, i.m., or empty for default/oral); combo_hint for approved combination therapies (e.g. Rivaroxaban vascular + ASS) and multi-substance products. Downstream apps can add `route` and `combo_hint` to their existing `SELECT ... FROM drugs` queries — no new table or JOIN needed
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
 - `substance_brand_map` (substance, brand_name, route)
 - `epha_interactions` (atc1, atc2, risk_class, risk_label, effect, mechanism, measures, title, severity_score) — EPha curated data, queried by ATC pair

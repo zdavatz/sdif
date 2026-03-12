@@ -69,6 +69,7 @@
   .expand-btn { font-size: 0.8rem; color: #2563eb; cursor: pointer; margin-top: 4px; display: inline-block; }
   .fi-quality-hint { font-size: 0.78rem; color: #b45309; background: #fef3c7; padding: 3px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; }
   .route-badge { font-size: 0.7rem; color: #6b7280; font-weight: 400; }
+  .combo-hint { font-size: 0.78rem; color: #065f46; background: #d1fae5; padding: 3px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; }
 
   /* Search tab */
   .search-results-count { color: #666; font-size: 0.9rem; margin-bottom: 12px; }
@@ -356,6 +357,7 @@ function renderInteraction(ix) {
     <div class="interaction-desc">${decodeAndEsc(ix.description)}</div>
     <span class="expand-btn">mehr anzeigen</span>
     ${ix._fiHint ? `<div class="fi-quality-hint">${esc(ix._fiHint)}</div>` : ''}
+    ${ix.combo_hint ? `<div class="combo-hint">${esc(ix.combo_hint)}</div>` : ''}
   </div>`;
 }
 

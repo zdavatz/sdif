@@ -67,7 +67,7 @@ The `check` command accepts both brand names (Ponstan, Marcoumar) and substance 
 
 Generates `db/interactions.db` with the following tables:
 
-- **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text, administration route (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., etc.). Downstream apps can read `route` from their existing `SELECT ... FROM drugs` queries
+- **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text, administration route (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., etc.), combination therapy hint (e.g. "Zugelassene Kombitherapie mit ASS" for Rivaroxaban vascular). Downstream apps can read `route` and `combo_hint` from their existing `SELECT ... FROM drugs` queries
 - **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
 - **substance_brand_map** — maps substance names to brand names with route indicator. No extra table or JOIN needed for route info
 - **epha_interactions** — EPha curated ATC-pair interactions with risk class, effect, mechanism, and measures

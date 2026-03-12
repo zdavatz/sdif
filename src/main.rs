@@ -842,6 +842,24 @@ fn derive_route(atc_code: &str, brand_name: &str) -> &'static str {
     ""
 }
 
+/// Derive a combination therapy hint from brand name and drug properties.
+/// Returns a hint string for known approved combination therapies, or empty.
+fn derive_combo_hint(brand_name: &str, atc_code: &str, substances: &[String]) -> String {
+    let name_lower = brand_name.to_lowercase();
+
+    // Rivaroxaban vascular = approved for use WITH ASS
+    if name_lower.contains("vascular") && atc_code == "B01AF01" {
+        return "Zugelassene Kombitherapie mit niedrigdosierter Acetylsalicylsäure (ASS 75–100 mg) zur Prävention atherothrombotischer Ereignisse".to_string();
+    }
+
+    // Multi-substance combination products: the contained substances are combined by design
+    if substances.len() > 1 {
+        return format!("Kombipräparat mit {} Wirkstoffen", substances.len());
+    }
+
+    String::new()
+}
+
 fn build_substance_brand_map(drugs: &[Drug]) -> HashMap<String, Vec<String>> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
     for drug in drugs {
@@ -1184,7 +1202,8 @@ fn write_interactions_db(
             atc_class TEXT,
             active_substances TEXT NOT NULL,
             interactions_text TEXT,
-            route TEXT NOT NULL DEFAULT ''
+            route TEXT NOT NULL DEFAULT '',
+            combo_hint TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX idx_drugs_brand ON drugs(brand_name);
         CREATE INDEX idx_drugs_atc ON drugs(atc_code);
@@ -1248,10 +1267,11 @@ fn write_interactions_db(
 
     {
         let mut stmt = conn.prepare(
-            "INSERT INTO drugs (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO drugs (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
         for drug in drugs {
             let route = derive_route(&drug.atc_code, &drug.title);
+            let combo_hint = derive_combo_hint(&drug.title, &drug.atc_code, &drug.active_substances);
             stmt.execute(params![
                 drug.id,
                 drug.title,
@@ -1260,6 +1280,7 @@ fn write_interactions_db(
                 drug.active_substances.join(", "),
                 drug.interactions_text,
                 route,
+                combo_hint,
             ])?;
         }
     }

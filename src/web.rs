@@ -191,6 +191,7 @@ struct InteractionResult {
     description: String,
     explanation: String,
     source: String, // "Swissmedic FI" or "EPha"
+    combo_hint: String,
 }
 
 struct BasketDrug {
@@ -199,6 +200,7 @@ struct BasketDrug {
     atc_code: String,
     interactions_text: String,
     route: String,
+    combo_hint: String,
 }
 
 fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
@@ -206,7 +208,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
     // Try brand name first
     let mut stmt = conn
         .prepare(
-            "SELECT brand_name, active_substances, atc_code, interactions_text, COALESCE(route, '') \
+            "SELECT brand_name, active_substances, atc_code, interactions_text, COALESCE(route, ''), COALESCE(combo_hint, '') \
              FROM drugs WHERE brand_name LIKE ?1 ORDER BY length(interactions_text) DESC",
         )
         .ok()?;
@@ -217,6 +219,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
         let atc_code: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
         let interactions_text: String = row.get::<_, Option<String>>(3).ok()?.unwrap_or_default();
         let route: String = row.get(4).ok()?;
+        let combo_hint: String = row.get(5).ok()?;
         let substances: Vec<String> = substances_str
             .split(", ")
             .map(|s| s.to_lowercase())
@@ -227,6 +230,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
             atc_code,
             interactions_text,
             route,
+            combo_hint,
         });
     }
     drop(rows);
@@ -234,7 +238,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
     // Try substance name
     let mut stmt2 = conn
         .prepare(
-            "SELECT DISTINCT d.brand_name, d.active_substances, d.atc_code, d.interactions_text, COALESCE(d.route, '') \
+            "SELECT DISTINCT d.brand_name, d.active_substances, d.atc_code, d.interactions_text, COALESCE(d.route, ''), COALESCE(d.combo_hint, '') \
              FROM substance_brand_map s JOIN drugs d ON d.brand_name = s.brand_name \
              WHERE s.substance LIKE ?1 ORDER BY length(d.interactions_text) DESC LIMIT 1",
         )
@@ -247,6 +251,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
         let atc_code: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
         let interactions_text: String = row.get::<_, Option<String>>(3).ok()?.unwrap_or_default();
         let route: String = row.get(4).ok()?;
+        let combo_hint: String = row.get(5).ok()?;
         let substances: Vec<String> = substances_str
             .split(", ")
             .map(|s| s.to_lowercase())
@@ -257,6 +262,7 @@ fn resolve_drug(conn: &Connection, input: &str) -> Option<BasketDrug> {
             atc_code,
             interactions_text,
             route,
+            combo_hint,
         });
     }
     None
@@ -325,6 +331,7 @@ async fn check_interactions(
                             description: desc,
                             explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, a.brand),
                             source: fi_source.clone(),
+                            combo_hint: String::new(),
                         });
                     }
                 }
@@ -356,6 +363,7 @@ async fn check_interactions(
                             description: desc,
                             explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, b.brand),
                             source: fi_source.clone(),
+                            combo_hint: String::new(),
                         });
                     }
                 }
@@ -380,6 +388,7 @@ async fn check_interactions(
                         explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
                             b.brand, b.atc_code, class_desc, hit.class_keyword, a.brand),
                         source: fi_source.clone(),
+                        combo_hint: String::new(),
                     });
                 }
                 for hit in find_class_interactions(&b.interactions_text, &a.atc_code, &class_keywords) {
@@ -401,6 +410,7 @@ async fn check_interactions(
                         explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
                             a.brand, a.atc_code, class_desc, hit.class_keyword, b.brand),
                         source: fi_source.clone(),
+                        combo_hint: String::new(),
                     });
                 }
 
@@ -423,6 +433,7 @@ async fn check_interactions(
                         explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
                             b.brand, hit.class_keyword, a.brand),
                         source: fi_source.clone(),
+                        combo_hint: String::new(),
                     });
                 }
                 for hit in find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules) {
@@ -443,6 +454,7 @@ async fn check_interactions(
                         explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
                             a.brand, hit.class_keyword, b.brand),
                         source: fi_source.clone(),
+                        combo_hint: String::new(),
                     });
                 }
 
@@ -482,9 +494,25 @@ async fn check_interactions(
                         description: desc,
                         explanation: format!("EPha Interaktionsdatenbank (ATC {} ↔ {})", a.atc_code, b.atc_code),
                         source: "EPha".to_string(),
+                        combo_hint: String::new(),
                     });
                 }
                 } // end if epha_enabled
+            }
+        }
+
+        // Set combo_hint from basket drugs
+        let combo_hints: HashMap<String, String> = basket_drugs.iter()
+            .filter(|d| !d.combo_hint.is_empty())
+            .map(|d| (d.brand.clone(), d.combo_hint.clone()))
+            .collect();
+        for ix in &mut interactions {
+            let hint_a = combo_hints.get(&ix.drug_a).cloned().unwrap_or_default();
+            let hint_b = combo_hints.get(&ix.drug_b).cloned().unwrap_or_default();
+            if !hint_a.is_empty() {
+                ix.combo_hint = format!("{}: {}", ix.drug_a, hint_a);
+            } else if !hint_b.is_empty() {
+                ix.combo_hint = format!("{}: {}", ix.drug_b, hint_b);
             }
         }
 
