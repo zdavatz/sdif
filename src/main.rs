@@ -1008,6 +1008,9 @@ fn strip_section_references(text: &str) -> String {
     // "siehe Kontraindikationen" for easier pattern matching
     let normalized = text.replace('\u{ab}', "").replace('\u{bb}', ""); // « and »
     let mut result = normalized;
+    // Strip the internal supplementary-text marker tag [Warnhinweise/Kontraindikationen:]
+    // This is an editorial tag, not a clinical contraindication statement
+    result = result.replace("[warnhinweise/kontraindikationen:]", " ");
     // Strip isolated "Kontraindiziert!" labels (FI table headers, not clinical statements)
     // These appear as "kontraindiziert! <substance>" at the start of a description
     if result.starts_with("kontraindiziert!") {
