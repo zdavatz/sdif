@@ -71,6 +71,12 @@
   .route-badge { font-size: 0.7rem; color: #6b7280; font-weight: 400; }
   .combo-hint { font-size: 0.78rem; color: #065f46; background: #d1fae5; padding: 3px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; }
 
+  /* Card actions */
+  .card-actions { display: flex; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; }
+  .card-action-btn { font-size: 0.78rem; padding: 3px 10px; border: 1px solid #ddd; border-radius: 4px; background: #fafafa; color: #555; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+  .card-action-btn:hover { background: #e8f0fe; border-color: #93b4f5; color: #1a56db; }
+  .card-action-btn.copied { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
+
   /* Search tab */
   .search-results-count { color: #666; font-size: 0.9rem; margin-bottom: 12px; }
 
@@ -358,6 +364,10 @@ function renderInteraction(ix) {
     <span class="expand-btn">mehr anzeigen</span>
     ${ix._fiHint ? `<div class="fi-quality-hint">${esc(ix._fiHint)}</div>` : ''}
     ${ix.combo_hint ? `<div class="combo-hint">${esc(ix.combo_hint)}</div>` : ''}
+    <div class="card-actions">
+      <button class="card-action-btn copy-btn" title="Text kopieren">&#128203; Kopieren</button>
+      <a class="card-action-btn feedback-btn" target="_blank" title="Feedback senden">&#9993; Feedback</a>
+    </div>
   </div>`;
 }
 
@@ -500,6 +510,10 @@ function renderSearchCard(r) {
     </div>
     <div class="interaction-desc">${decodeAndEsc(r.description)}</div>
     <span class="expand-btn">mehr anzeigen</span>
+    <div class="card-actions">
+      <button class="card-action-btn copy-btn" title="Text kopieren">&#128203; Kopieren</button>
+      <a class="card-action-btn feedback-btn" target="_blank" title="Feedback senden">&#9993; Feedback</a>
+    </div>
   </div>`;
 }
 
@@ -514,6 +528,43 @@ function attachExpandHandlers() {
         btn.textContent = desc.classList.contains('expanded') ? 'weniger' : 'mehr anzeigen';
       });
     }
+  });
+  // Card action buttons
+  document.querySelectorAll('.card-actions').forEach(actions => {
+    if (actions.dataset.bound) return;
+    actions.dataset.bound = '1';
+    const card = actions.closest('.interaction-card');
+    const copyBtn = actions.querySelector('.copy-btn');
+    const feedbackBtn = actions.querySelector('.feedback-btn');
+
+    function getCardText() {
+      const header = card.querySelector('.interaction-drugs');
+      const badge = card.querySelector('.interaction-badge');
+      const desc = card.querySelector('.interaction-desc');
+      const type = card.querySelector('.interaction-type');
+      const expl = card.querySelector('.interaction-explanation');
+      let text = (header ? header.textContent.trim() : '') + '\n';
+      if (badge) text += badge.textContent.trim() + '\n';
+      if (type) text += type.textContent.trim() + '\n';
+      if (expl) text += expl.textContent.trim() + '\n';
+      if (desc) text += '\n' + desc.textContent.trim();
+      return text;
+    }
+
+    copyBtn.addEventListener('click', () => {
+      const text = getCardText();
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.classList.add('copied');
+        copyBtn.innerHTML = '&#10003; Kopiert';
+        setTimeout(() => { copyBtn.classList.remove('copied'); copyBtn.innerHTML = '&#128203; Kopieren'; }, 2000);
+      });
+    });
+
+    const cardText = getCardText();
+    const header = card.querySelector('.interaction-drugs');
+    const subject = 'SDIF Feedback: ' + (header ? header.textContent.trim() : '');
+    const body = cardText + '\n\n---\nURL: ' + window.location.href;
+    feedbackBtn.href = 'mailto:zdavatz@ywesee.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   });
 }
 

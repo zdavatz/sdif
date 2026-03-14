@@ -125,7 +125,7 @@ sdif serve -p 8080   # custom port
 ```
 
 Features:
-- **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, color-coded severity cards with explanations, route indicators (topisch, i.v., s.c., inhalativ, etc.) next to drug names, systemic-first sorting within same severity, FI quality hints for asymmetric severity between bidirectional pairs
+- **Interaktions-Check**: Drug search with autocomplete (keyboard ↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, color-coded severity cards with explanations, route indicators (topisch, i.v., s.c., inhalativ, etc.) next to drug names, systemic-first sorting within same severity, FI quality hints for asymmetric severity between bidirectional pairs, card actions (copy text to clipboard, send feedback via mailto)
 - **Klinische Suche**: Full-text search with type-ahead suggestions including bigram phrases (e.g. type "hormonale" to see "hormonale Kontrazeptivum (76)"), preserves original capitalization, UTF-8 safe char boundary handling, route indicators on drugs, "mehr anzeigen" pagination (50 results per page), sorted by severity then route priority
 - **ATC-Klassen**: Overview of all 42 ATC class-level interaction mappings with sortable table
 - **Shareable URLs**: Basket state encoded as ATC codes in URL (e.g. `?tab=check&drugs=M01AG01-B01AA04-N02BA01`)
