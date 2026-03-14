@@ -168,3 +168,67 @@ Clarithromycin Sandoz® <-> domperidon (Motilium®) | Severity: ### (Kontraindiz
   ...was zu QT-Verlängerung und Arrhythmien einschliesslich
   ventrikulärer Tachykardie, Kammerflimmern und Torsades de Pointes führen kann.
 ```
+
+## Deployment (sdif.oddb.org)
+
+The web UI runs in a `screen` session and is reverse-proxied through Apache with SSL (Let's Encrypt).
+
+```bash
+# Start the server in a screen session
+screen -S sdif
+sdif serve --epha
+# Detach with Ctrl-A D
+```
+
+Apache config (`/etc/apache2/sites-available/sdif-ssl.conf`) redirects HTTP to HTTPS:
+
+```apache
+<VirtualHost *:80>
+    ServerName sdif.oddb.org
+    ServerAdmin webmaster@oddb.org
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    ProxyPass / http://localhost:3000/
+    ProxyPassReverse / http://localhost:3000/
+
+    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Real-IP %{REMOTE_ADDR}s
+
+    ErrorLog ${APACHE_LOG_DIR}/sdif.oddb.org_error.log
+    CustomLog ${APACHE_LOG_DIR}/sdif.oddb.org_access.log combined
+    RewriteEngine on
+    RewriteCond %{SERVER_NAME} =sdif.oddb.org
+    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>
+```
+
+SSL config (`/etc/apache2/sites-available/sdif-ssl-le-ssl.conf`) created by certbot:
+
+```apache
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerName sdif.oddb.org
+    ServerAdmin webmaster@oddb.org
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    ProxyPass / http://localhost:3000/
+    ProxyPassReverse / http://localhost:3000/
+
+    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Real-IP %{REMOTE_ADDR}s
+
+    ErrorLog ${APACHE_LOG_DIR}/sdif.oddb.org_error.log
+    CustomLog ${APACHE_LOG_DIR}/sdif.oddb.org_access.log combined
+
+    SSLCertificateFile /etc/letsencrypt/live/sdif.oddb.org/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/sdif.oddb.org/privkey.pem
+    Include /etc/letsencrypt/options-ssl-apache.conf
+</VirtualHost>
+</IfModule>
+```
+
+Required Apache modules: `mod_ssl`, `mod_proxy`, `mod_proxy_http`, `mod_headers`, `mod_rewrite`. SSL certificate auto-renews via certbot.

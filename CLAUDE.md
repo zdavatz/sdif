@@ -97,6 +97,12 @@ python3 generate_stats.py
 - With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
 - Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text, UTF-8 safe char boundary handling for multi-byte characters (e.g. em-dash «–»)
 
+## Deployment
+- **Production**: https://sdif.oddb.org — runs `sdif serve --epha` in a `screen` session on port 3000
+- **Reverse proxy**: Apache with SSL (Let's Encrypt), configs at `/etc/apache2/sites-available/sdif-ssl.conf` (HTTP→HTTPS redirect) and `sdif-ssl-le-ssl.conf` (SSL proxy to localhost:3000)
+- **Required Apache modules**: `mod_ssl`, `mod_proxy`, `mod_proxy_http`, `mod_headers`, `mod_rewrite`
+- **SSL cert**: auto-renewed by certbot (`sudo certbot --apache -d sdif.oddb.org`; requires `python3-certbot-apache`)
+
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`
 - `axum`, `tokio`, `tower-http` (web server)
