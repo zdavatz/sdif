@@ -2,7 +2,9 @@
 
 A Rust tool that builds a searchable drug interactions SQLite database from the AmiKo Swiss drug database and EPha curated interaction data. It extracts interaction data from drug labels (Fachinformation) and enables basket-based interaction checking between drugs. Optionally includes EPha professionally graded ATC-pair interactions. Supports input by brand name or substance name.
 
-![SDIF Stats](sdif_swiss_drug_interactions_finder_stats_10h24-14.03.2026.png)
+<a href="https://sdif.oddb.org" target="_blank"><img src="sdif_swiss_drug_interactions_finder_stats_10h24-14.03.2026.png" alt="SDIF Stats"></a>
+
+*Interaktionscheck auf Basis der Schweizer Fachinformationen und EPha*
 
 ## How it works
 
