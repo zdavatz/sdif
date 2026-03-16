@@ -96,6 +96,7 @@ python3 generate_stats.py
 - Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, route indicators (topisch, i.v., s.c., etc.) next to drug names, systemic-first sorting within same severity, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, "mehr anzeigen" pagination in clinical search, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty, card actions (copy text to clipboard, send feedback via mailto to zdavatz@ywesee.com with card content and page URL)
 - With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
 - Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text, UTF-8 safe char boundary handling for multi-byte characters (e.g. em-dash «–»)
+- **iOS App**: [SDIF on the App Store](https://apps.apple.com/us/app/sdif/id6760486846) — App Store badge linked in header next to title
 
 ## Deployment
 - **Production**: https://sdif.oddb.org — runs `sdif serve --epha` in a `screen` session on port 3000

@@ -6,6 +6,8 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 
 *Interaktionscheck auf Basis der Schweizer Fachinformationen und EPha*
 
+[![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/sdif/id6760486846)
+
 ## How it works
 
 1. Downloads and reads the AmiKo full-text database (`amiko_db_full_idx_de.db`)
