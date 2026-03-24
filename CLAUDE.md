@@ -97,6 +97,7 @@ python3 generate_stats.py
 - With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
 - Clinical search type-ahead: suggests both single words and bigram phrases (e.g. "hormonale Kontrazeptivum"), preserves original capitalization from source text, UTF-8 safe char boundary handling for multi-byte characters (e.g. em-dash «–»)
 - **iOS App**: [SDIF on the App Store](https://apps.apple.com/us/app/sdif/id6760486846) — App Store badge linked in header next to title
+- **Android App**: [SDIF on Google Play](https://play.google.com/store/apps/details?id=org.oddb.sdif) — Google Play badge linked in header next to title
 
 ## Deployment
 - **Production**: https://sdif.oddb.org — runs `sdif serve --epha` in a `screen` session on port 3000

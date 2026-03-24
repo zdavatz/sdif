@@ -7,6 +7,7 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 *Interaktionscheck auf Basis der Schweizer Fachinformationen und EPha*
 
 [![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/sdif/id6760486846)
+[![Jetzt bei Google Play](https://play.google.com/intl/en_us/badges/static/images/badges/de_badge_web_generic.png)](https://play.google.com/store/apps/details?id=org.oddb.sdif)
 
 ## How it works
 
