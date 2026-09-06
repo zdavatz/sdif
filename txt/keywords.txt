@@ -48,7 +48,7 @@ H02	corticosteroid, kortikosteroid, glucocorticoid, glukokortikoid, kortison, st
 # L04 = Immunsuppressiva
 L04	immunsuppress, ciclosporin, tacrolimus, mycophenolat, azathioprin, sirolimus
 # L01 = Antineoplastische Mittel
-L01	antineoplast, zytostatik, methotrexat, chemotherap
+L01	antineoplast, zytostatik, methotrexat, chemotherap, myelosuppress, myelotox
 # N03 = Antiepileptika
 N03	antiepileptik, antikonvulsiv, krampflösend, carbamazepin, valproinsäure, phenytoin, enzymindukt
 # N05A = Antipsychotika

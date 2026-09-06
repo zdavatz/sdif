@@ -43,7 +43,8 @@ sdif search "QT-Verlängerung" -l 5
 - **Substance-level**: Exact substance name match in interaction text (46,440 records, 17,294 unique substance pairs)
 - **ATC class-level**: Maps ~40 ATC prefixes to German class keywords for basket checks
   - Keywords defined in `txt/keywords.txt` and stored in `class_keywords` table during build
-  - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"
+  - e.g. B01A → "antikoagul", "warfarin"; M01A → "antiphlogistika", "nsar"; L01 → "antineoplast", "zytostatik", "chemotherap", "myelosuppress", "myelotox" (myelotoxicity statements between cytostatics, e.g. Carboplatin ↔ Paclitaxel)
+  - `keywords.txt` is embedded via `include_str!` — after editing it, run `cargo build --release` **then** `sdif build`
   - Covers: anticoagulants, NSAIDs, opioids, ACE inhibitors, sartans, beta-blockers, Ca-channel blockers, diuretics, cardiac glycosides, antiarrhythmics, statins, SSRIs/SNRIs, antidiabetics, corticosteroids, immunosuppressants, antineoplastics, antiepiletics, antipsychotics, anxiolytics, antibiotics (macrolides, fluoroquinolones), antimycotics, antivirals, PPIs, contraceptives, bronchodilators, gout agents, iron supplements, SERMs (L02BA), muscle relaxants (M03A), antidotes (V03AB)
 - **CYP enzyme-level**: Detects CYP450-mediated interactions at query time via `cyp_rules` table
   - If Drug A's interaction text mentions a CYP enzyme and Drug B is a known inhibitor/inducer, flags the interaction

@@ -22,7 +22,7 @@ A Rust tool that builds a searchable drug interactions SQLite database from the 
 ### Interaction detection strategies
 
 - **Substance-level matching**: Direct lookup — does Drug A's interaction text mention Drug B's active substance?
-- **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist). Keywords are maintained in [`txt/keywords.txt`](txt/keywords.txt) and stored in the `class_keywords` table in `interactions.db` during build.
+- **ATC class-level matching**: Maps ATC code prefixes to German pharmacological class keywords (e.g. B01A → "Antikoagulantien", M01A → "Antiphlogistika") to catch class-level interactions like Ponstan (NSAID) ↔ Marcoumar (Vitamin-K-Antagonist). Keywords are maintained in [`txt/keywords.txt`](txt/keywords.txt) and stored in the `class_keywords` table in `interactions.db` during build. L01 (antineoplastics) also matches "myelosuppress"/"myelotox", so FI statements about additive myelotoxicity (e.g. Carboplatin ↔ Paclitaxel) are surfaced as class-level hits.
 - **CYP enzyme matching**: Detects CYP450-mediated interactions at query time — if Drug A's text mentions a CYP enzyme (e.g. CYP3A4) and Drug B is a known inhibitor or inducer of that enzyme, the interaction is flagged. Covers CYP3A4, CYP2D6, CYP2C9, CYP2C19, CYP1A2, CYP2C8, CYP2B6 with known inhibitors/inducers mapped by ATC prefix and substance name (e.g. Ritonavir ↔ Clobetasol via CYP3A4). Rules are stored in the `cyp_rules` table during build.
 - **EPha curated interactions** (opt-in via `--epha`): 9,133 unique ATC-pair interactions from the EPha.ch database with professional 5-level risk grading (A = keine Massnahmen, B = Vorsichtsmassnahmen, C = Überwachung, D = Kombination vermeiden, X = Kontraindiziert). Includes structured effect descriptions, mechanisms, and recommended measures. Stored in a separate `epha_interactions` table — backward-compatible with existing tools
 
@@ -147,19 +147,20 @@ Features:
 ```
 $ sdif class-interactions
 
-Scanning 4507 drugs for class-level interactions...
+Scanning 4564 drugs for class-level interactions...
 ATC Class  Drugs in Cl.   Drugs Mentioning    Potential Pairs   Top Keyword
 ------------------------------------------------------------------------------------------
-L01                 328                202              66256   methotrexat
-L04                 153                355              54315   ciclosporin
-J01                 170                258              43860   antibiotik
-B01A                 78                510              39780   warfarin
-N06A                 98                375              36750   antidepressiv
-N03                  65                540              35100   phenytoin
-M01A                124                213              26412   nsar
+L01                 337                206              69422   methotrexat
+L04                 163                357              58191   ciclosporin
+J01                 168                253              42504   antibiotik
+B01A                 81                508              41148   warfarin
+N06A                100                372              37200   antidepressiv
+N03                  62                540              33480   phenytoin
+G03A                 78                326              25428   kontrazeptiv
+M01A                121                208              25168   nsar
 ...
 ------------------------------------------------------------------------------------------
-Total potential class-level interaction pairs: 597280
+Total potential class-level interaction pairs: 596362
 ```
 
 ## Example: Search by clinical term
