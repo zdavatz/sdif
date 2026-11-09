@@ -11,17 +11,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::{
-    find_class_interactions, find_cyp_interactions, load_class_keywords, load_cyp_rules,
-    score_severity, severity_indicator,
-};
+use crate::{find_class_interactions, find_cyp_interactions, load_class_keywords, load_cyp_rules, score_severity, severity_indicator};
 
 /// Route priority for sorting: systemic routes first, topical last.
 /// Lower value = higher priority (shown first).
 fn route_priority(route_a: &str, route_b: &str) -> u8 {
     fn single(r: &str) -> u8 {
         match r {
-            "" => 0, // systemisch/unbekannt (most likely oral)
+            "" => 0,         // systemisch/unbekannt (most likely oral)
             "p.o." => 0,
             "i.v." => 0,
             "s.c." => 1,
@@ -295,8 +292,8 @@ fn interactions_for(
             // Strategy 1: Substance match A->B
             for subst in &b.substances {
                 let mut stmt = conn.prepare(
-                        "SELECT description, severity_score, severity_label FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
-                    )?;
+                    "SELECT description, severity_score, severity_label FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
+                )?;
                 let rows: Vec<(String, u8, String)> = stmt
                     .query_map(params![a.brand, subst], |row| {
                         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -317,10 +314,7 @@ fn interactions_for(
                         severity_indicator: severity_indicator(sev_score).to_string(),
                         keyword: subst.clone(),
                         description: desc,
-                        explanation: format!(
-                            "Wirkstoff «{}» wird in der Fachinformation von {} erwähnt",
-                            subst, a.brand
-                        ),
+                        explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, a.brand),
                         source: fi_source.clone(),
                         combo_hint: String::new(),
                     });
@@ -330,8 +324,8 @@ fn interactions_for(
             // Substance match B->A
             for subst in &a.substances {
                 let mut stmt = conn.prepare(
-                        "SELECT description, severity_score, severity_label FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
-                    )?;
+                    "SELECT description, severity_score, severity_label FROM interactions WHERE drug_brand = ?1 AND interacting_substance = ?2",
+                )?;
                 let rows: Vec<(String, u8, String)> = stmt
                     .query_map(params![b.brand, subst], |row| {
                         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -352,10 +346,7 @@ fn interactions_for(
                         severity_indicator: severity_indicator(sev_score).to_string(),
                         keyword: subst.clone(),
                         description: desc,
-                        explanation: format!(
-                            "Wirkstoff «{}» wird in der Fachinformation von {} erwähnt",
-                            subst, b.brand
-                        ),
+                        explanation: format!("Wirkstoff «{}» wird in der Fachinformation von {} erwähnt", subst, b.brand),
                         source: fi_source.clone(),
                         combo_hint: String::new(),
                     });
@@ -367,51 +358,49 @@ fn interactions_for(
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 let class_desc = atc_class_description_for_code(&b.atc_code);
                 interactions.push(InteractionResult {
-                        drug_a: a.brand.clone(),
-                        drug_a_atc: a.atc_code.clone(),
-                        drug_a_route: a.route.clone(),
-                        drug_b: b.brand.clone(),
-                        drug_b_atc: b.atc_code.clone(),
-                        drug_b_route: b.route.clone(),
-                        interaction_type: "class-level".to_string(),
-                        severity_score: sev_score,
-                        severity_label: sev_label.to_string(),
-                        severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: hit.class_keyword.clone(),
-                        description: hit.context,
-                        explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
-                            b.brand, b.atc_code, class_desc, hit.class_keyword, a.brand),
-                        source: fi_source.clone(),
-                        combo_hint: String::new(),
-                    });
+                    drug_a: a.brand.clone(),
+                    drug_a_atc: a.atc_code.clone(),
+                    drug_a_route: a.route.clone(),
+                    drug_b: b.brand.clone(),
+                    drug_b_atc: b.atc_code.clone(),
+                    drug_b_route: b.route.clone(),
+                    interaction_type: "class-level".to_string(),
+                    severity_score: sev_score,
+                    severity_label: sev_label.to_string(),
+                    severity_indicator: severity_indicator(sev_score).to_string(),
+                    keyword: hit.class_keyword.clone(),
+                    description: hit.context,
+                    explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
+                        b.brand, b.atc_code, class_desc, hit.class_keyword, a.brand),
+                    source: fi_source.clone(),
+                    combo_hint: String::new(),
+                });
             }
             for hit in find_class_interactions(&b.interactions_text, &a.atc_code, &class_keywords) {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 let class_desc = atc_class_description_for_code(&a.atc_code);
                 interactions.push(InteractionResult {
-                        drug_a: b.brand.clone(),
-                        drug_a_atc: b.atc_code.clone(),
-                        drug_a_route: b.route.clone(),
-                        drug_b: a.brand.clone(),
-                        drug_b_atc: a.atc_code.clone(),
-                        drug_b_route: a.route.clone(),
-                        interaction_type: "class-level".to_string(),
-                        severity_score: sev_score,
-                        severity_label: sev_label.to_string(),
-                        severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: hit.class_keyword.clone(),
-                        description: hit.context,
-                        explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
-                            a.brand, a.atc_code, class_desc, hit.class_keyword, b.brand),
-                        source: fi_source.clone(),
-                        combo_hint: String::new(),
-                    });
+                    drug_a: b.brand.clone(),
+                    drug_a_atc: b.atc_code.clone(),
+                    drug_a_route: b.route.clone(),
+                    drug_b: a.brand.clone(),
+                    drug_b_atc: a.atc_code.clone(),
+                    drug_b_route: a.route.clone(),
+                    interaction_type: "class-level".to_string(),
+                    severity_score: sev_score,
+                    severity_label: sev_label.to_string(),
+                    severity_indicator: severity_indicator(sev_score).to_string(),
+                    keyword: hit.class_keyword.clone(),
+                    description: hit.context,
+                    explanation: format!("{} [{}] gehört zur Klasse {} — Keyword «{}» gefunden in Fachinformation von {}",
+                        a.brand, a.atc_code, class_desc, hit.class_keyword, b.brand),
+                    source: fi_source.clone(),
+                    combo_hint: String::new(),
+                });
             }
 
             // Strategy 3: CYP
-            for hit in
-                find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances, &cyp_rules)
-            {
+            for hit in find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances, &cyp_rules) {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 interactions.push(InteractionResult {
                     drug_a: a.brand.clone(),
@@ -426,17 +415,13 @@ fn interactions_for(
                     severity_indicator: severity_indicator(sev_score).to_string(),
                     keyword: hit.class_keyword.clone(),
                     description: hit.context,
-                    explanation: format!(
-                        "{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
-                        b.brand, hit.class_keyword, a.brand
-                    ),
+                    explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
+                        b.brand, hit.class_keyword, a.brand),
                     source: fi_source.clone(),
                     combo_hint: String::new(),
                 });
             }
-            for hit in
-                find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules)
-            {
+            for hit in find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules) {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 interactions.push(InteractionResult {
                     drug_a: b.brand.clone(),
@@ -451,10 +436,8 @@ fn interactions_for(
                     severity_indicator: severity_indicator(sev_score).to_string(),
                     keyword: hit.class_keyword.clone(),
                     description: hit.context,
-                    explanation: format!(
-                        "{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
-                        a.brand, hit.class_keyword, b.brand
-                    ),
+                    explanation: format!("{} ist {} — Fachinformation von {} erwähnt dieses Enzym",
+                        a.brand, hit.class_keyword, b.brand),
                     source: fi_source.clone(),
                     combo_hint: String::new(),
                 });
@@ -462,64 +445,49 @@ fn interactions_for(
 
             // Strategy 4: EPha curated interactions by ATC pair
             if epha_enabled {
-                let mut epha_stmt = conn.prepare(
-                    "SELECT risk_class, risk_label, effect, mechanism, measures, severity_score, title \
-                     FROM epha_interactions WHERE (atc1 = ?1 AND atc2 = ?2) OR (atc1 = ?2 AND atc2 = ?1) LIMIT 1",
-                )?;
-                let epha_rows: Vec<(String, String, String, String, String, u8, String)> =
-                    epha_stmt
-                        .query_map(params![a.atc_code, b.atc_code], |row| {
-                            Ok((
-                                row.get(0)?,
-                                row.get(1)?,
-                                row.get(2)?,
-                                row.get(3)?,
-                                row.get(4)?,
-                                row.get(5)?,
-                                row.get(6)?,
-                            ))
-                        })?
-                        .filter_map(|r| r.ok())
-                        .collect();
-                for (risk_class, risk_label, effect, mechanism, measures, sev_score, _title) in
-                    epha_rows
-                {
-                    let desc = if mechanism.is_empty() {
-                        effect.clone()
-                    } else {
-                        format!(
-                            "{}\n\nMechanismus: {}\n\nMassnahmen: {}",
-                            effect, mechanism, measures
-                        )
-                    };
-                    interactions.push(InteractionResult {
-                        drug_a: a.brand.clone(),
-                        drug_a_atc: a.atc_code.clone(),
-                        drug_a_route: a.route.clone(),
-                        drug_b: b.brand.clone(),
-                        drug_b_atc: b.atc_code.clone(),
-                        drug_b_route: b.route.clone(),
-                        interaction_type: "epha".to_string(),
-                        severity_score: sev_score,
-                        severity_label: risk_label,
-                        severity_indicator: severity_indicator(sev_score).to_string(),
-                        keyword: risk_class,
-                        description: desc,
-                        explanation: format!(
-                            "EPha Interaktionsdatenbank (ATC {} ↔ {})",
-                            a.atc_code, b.atc_code
-                        ),
-                        source: "EPha".to_string(),
-                        combo_hint: String::new(),
-                    });
-                }
+            let mut epha_stmt = conn.prepare(
+                "SELECT risk_class, risk_label, effect, mechanism, measures, severity_score, title \
+                 FROM epha_interactions WHERE (atc1 = ?1 AND atc2 = ?2) OR (atc1 = ?2 AND atc2 = ?1) LIMIT 1",
+            )?;
+            let epha_rows: Vec<(String, String, String, String, String, u8, String)> = epha_stmt
+                .query_map(params![a.atc_code, b.atc_code], |row| {
+                    Ok((
+                        row.get(0)?, row.get(1)?, row.get(2)?,
+                        row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            for (risk_class, risk_label, effect, mechanism, measures, sev_score, _title) in epha_rows {
+                let desc = if mechanism.is_empty() {
+                    effect.clone()
+                } else {
+                    format!("{}\n\nMechanismus: {}\n\nMassnahmen: {}", effect, mechanism, measures)
+                };
+                interactions.push(InteractionResult {
+                    drug_a: a.brand.clone(),
+                    drug_a_atc: a.atc_code.clone(),
+                    drug_a_route: a.route.clone(),
+                    drug_b: b.brand.clone(),
+                    drug_b_atc: b.atc_code.clone(),
+                    drug_b_route: b.route.clone(),
+                    interaction_type: "epha".to_string(),
+                    severity_score: sev_score,
+                    severity_label: risk_label,
+                    severity_indicator: severity_indicator(sev_score).to_string(),
+                    keyword: risk_class,
+                    description: desc,
+                    explanation: format!("EPha Interaktionsdatenbank (ATC {} ↔ {})", a.atc_code, b.atc_code),
+                    source: "EPha".to_string(),
+                    combo_hint: String::new(),
+                });
+            }
             } // end if epha_enabled
         }
     }
 
     // Set combo_hint from basket drugs
-    let combo_hints: HashMap<String, String> = basket_drugs
-        .iter()
+    let combo_hints: HashMap<String, String> = basket_drugs.iter()
         .filter(|d| !d.combo_hint.is_empty())
         .map(|d| (d.brand.clone(), d.combo_hint.clone()))
         .collect();
@@ -535,10 +503,9 @@ fn interactions_for(
 
     // Sort by severity descending, then prefer systemic (empty route) over topical
     interactions.sort_by(|a, b| {
-        b.severity_score.cmp(&a.severity_score).then_with(|| {
-            route_priority(&a.drug_a_route, &a.drug_b_route)
-                .cmp(&route_priority(&b.drug_a_route, &b.drug_b_route))
-        })
+        b.severity_score.cmp(&a.severity_score)
+            .then_with(|| route_priority(&a.drug_a_route, &a.drug_b_route)
+                .cmp(&route_priority(&b.drug_a_route, &b.drug_b_route)))
     });
     Ok(interactions)
 }
@@ -549,11 +516,7 @@ async fn check_interactions(
 ) -> impl IntoResponse {
     let db_path = state.db_path.clone();
     let epha_enabled = state.epha;
-    let fi_source = if epha_enabled {
-        "Swissmedic FI".to_string()
-    } else {
-        String::new()
-    };
+    let fi_source = if epha_enabled { "Swissmedic FI".to_string() } else { String::new() };
     let result = tokio::task::spawn_blocking(move || -> Result<CheckResponse> {
         let conn = Connection::open(&db_path)?;
 
@@ -764,11 +727,7 @@ async fn search_interactions_api(
 ) -> impl IntoResponse {
     let db_path = state.db_path.clone();
     let epha_enabled = state.epha;
-    let fi_source = if epha_enabled {
-        "Swissmedic FI".to_string()
-    } else {
-        String::new()
-    };
+    let fi_source = if epha_enabled { "Swissmedic FI".to_string() } else { String::new() };
     let result = tokio::task::spawn_blocking(move || -> Result<SearchResponse> {
         let conn = Connection::open(&db_path)?;
         let pattern = format!("%{}%", query.term);
@@ -958,8 +917,9 @@ async fn suggest_terms_api(
     let result = tokio::task::spawn_blocking(move || -> Result<Vec<TermSuggestion>> {
         let conn = Connection::open(&db_path)?;
         let pattern = format!("%{}%", q);
-        let mut stmt = conn
-            .prepare("SELECT description FROM interactions WHERE description LIKE ?1 LIMIT 500")?;
+        let mut stmt = conn.prepare(
+            "SELECT description FROM interactions WHERE description LIKE ?1 LIMIT 500"
+        )?;
         let mut descriptions: Vec<String> = stmt
             .query_map(params![pattern], |row| row.get(0))?
             .filter_map(|r| r.ok())
@@ -967,15 +927,15 @@ async fn suggest_terms_api(
 
         // Also include EPha descriptions (if enabled)
         if epha_enabled {
-            let mut epha_stmt = conn.prepare(
-                "SELECT effect || ' ' || mechanism || ' ' || measures FROM epha_interactions \
-             WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 LIMIT 500",
-            )?;
-            let epha_descs: Vec<String> = epha_stmt
-                .query_map(params![pattern], |row| row.get(0))?
-                .filter_map(|r| r.ok())
-                .collect();
-            descriptions.extend(epha_descs);
+        let mut epha_stmt = conn.prepare(
+            "SELECT effect || ' ' || mechanism || ' ' || measures FROM epha_interactions \
+             WHERE effect LIKE ?1 OR mechanism LIKE ?1 OR measures LIKE ?1 LIMIT 500"
+        )?;
+        let epha_descs: Vec<String> = epha_stmt
+            .query_map(params![pattern], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        descriptions.extend(epha_descs);
         }
 
         // Extract words/phrases around the matching term
@@ -988,11 +948,7 @@ async fn suggest_terms_api(
         let mut add_term = |original: &str| {
             let key = original.to_lowercase();
             *term_counts.entry(key.clone()).or_insert(0) += 1;
-            *form_counts
-                .entry(key)
-                .or_default()
-                .entry(original.to_string())
-                .or_insert(0) += 1;
+            *form_counts.entry(key).or_default().entry(original.to_string()).or_insert(0) += 1;
         };
 
         for desc in &descriptions {
@@ -1012,14 +968,7 @@ async fn suggest_terms_api(
                     })
                     .unwrap_or(0);
                 let end = desc_lower[abs_idx..]
-                    .find(|c: char| {
-                        c.is_whitespace()
-                            || c == '('
-                            || c == ')'
-                            || c == ','
-                            || c == '.'
-                            || c == ';'
-                    })
+                    .find(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',' || c == '.' || c == ';')
                     .map(|i| abs_idx + i)
                     .unwrap_or(desc_lower.len());
 
@@ -1031,22 +980,13 @@ async fn suggest_terms_api(
                 // Also extract two-word phrases (bigrams)
                 // Look for the next word after the current match
                 let after = &desc_lower[end..];
-                if let Some(next_start_offset) = after.find(|c: char| {
-                    !c.is_whitespace() && c != ',' && c != ';' && c != '.' && c != ')'
-                }) {
+                if let Some(next_start_offset) = after.find(|c: char| !c.is_whitespace() && c != ',' && c != ';' && c != '.' && c != ')') {
                     let next_abs_start = end + next_start_offset;
                     // Only proceed if the separator was whitespace (not punctuation)
                     let separator = &desc_lower[end..next_abs_start];
                     if separator.chars().all(|c| c.is_whitespace()) && !separator.is_empty() {
                         let next_end = desc_lower[next_abs_start..]
-                            .find(|c: char| {
-                                c.is_whitespace()
-                                    || c == '('
-                                    || c == ')'
-                                    || c == ','
-                                    || c == '.'
-                                    || c == ';'
-                            })
+                            .find(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',' || c == '.' || c == ';')
                             .map(|i| next_abs_start + i)
                             .unwrap_or(desc_lower.len());
                         let bigram = desc[start..next_end].trim();
@@ -1090,14 +1030,10 @@ async fn suggest_terms_api(
             .filter(|(_, count)| *count >= 2)
             .map(|(key, count)| {
                 // Pick the most frequent original-case form
-                let display = form_counts
-                    .get(&key)
+                let display = form_counts.get(&key)
                     .and_then(|forms| forms.iter().max_by_key(|(_, c)| *c).map(|(f, _)| f.clone()))
                     .unwrap_or(key);
-                TermSuggestion {
-                    term: display,
-                    count,
-                }
+                TermSuggestion { term: display, count }
             })
             .collect();
         suggestions.sort_by(|a, b| b.count.cmp(&a.count));
@@ -1134,10 +1070,11 @@ struct ClassInteractionsResponse {
 fn atc_class_description_for_code(atc_code: &str) -> &'static str {
     // Try most specific prefix first (longest match)
     let prefixes = [
-        "B01AC", "B01A", "M01A", "N02B", "N02A", "C09A", "C09B", "C09C", "C09D", "C07", "C08",
-        "C03C", "C03A", "C03", "C01A", "C01B", "C10A", "N06AB", "N06A", "A10", "H02", "L04", "L01",
-        "N03", "N05A", "N05B", "N05C", "J01FA", "J01MA", "J01", "J02A", "J05A", "A02BC", "A02B",
-        "G03A", "N07", "R03", "M04", "B03", "L02BA", "L02B", "V03AB", "M03A",
+        "B01AC", "B01A", "M01A", "N02B", "N02A", "C09A", "C09B", "C09C", "C09D",
+        "C07", "C08", "C03C", "C03A", "C03", "C01A", "C01B", "C10A", "N06AB", "N06A",
+        "A10", "H02", "L04", "L01", "N03", "N05A", "N05B", "N05C",
+        "J01FA", "J01MA", "J01", "J02A", "J05A", "A02BC", "A02B", "G03A", "N07", "R03",
+        "M04", "B03", "L02BA", "L02B", "V03AB", "M03A",
     ];
     for prefix in &prefixes {
         if atc_code.starts_with(prefix) {
@@ -1196,20 +1133,18 @@ fn atc_class_description(prefix: &str) -> &'static str {
     }
 }
 
-async fn class_interactions_api(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn class_interactions_api(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
     let db_path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<ClassInteractionsResponse> {
         let conn = Connection::open(&db_path)?;
 
         let mut stmt = conn.prepare(
             "SELECT brand_name, atc_code, active_substances, interactions_text FROM drugs \
-             WHERE length(interactions_text) > 0 AND atc_code IS NOT NULL AND atc_code != ''",
+             WHERE length(interactions_text) > 0 AND atc_code IS NOT NULL AND atc_code != ''"
         )?;
-        struct DrugRow {
-            atc: String,
-            substances: String,
-            text: String,
-        }
+        struct DrugRow { atc: String, substances: String, text: String }
         let drugs: Vec<DrugRow> = stmt
             .query_map([], |row| {
                 Ok(DrugRow {
@@ -1226,10 +1161,7 @@ async fn class_interactions_api(State(state): State<Arc<AppState>>) -> impl Into
 
         let mut drugs_in_class: HashMap<String, usize> = HashMap::new();
         for (prefix, _) in &class_keywords {
-            let count = drugs
-                .iter()
-                .filter(|d| d.atc.starts_with(prefix.as_str()))
-                .count();
+            let count = drugs.iter().filter(|d| d.atc.starts_with(prefix.as_str())).count();
             drugs_in_class.insert(prefix.to_string(), count);
         }
 
@@ -1238,9 +1170,7 @@ async fn class_interactions_api(State(state): State<Arc<AppState>>) -> impl Into
 
         for (prefix, keywords) in &class_keywords {
             let n_in_class = *drugs_in_class.get(prefix.as_str()).unwrap_or(&0);
-            if n_in_class == 0 {
-                continue;
-            }
+            if n_in_class == 0 { continue; }
 
             let mut mentioning_substances: HashSet<String> = HashSet::new();
             let mut best_keyword = String::new();
@@ -1249,9 +1179,7 @@ async fn class_interactions_api(State(state): State<Arc<AppState>>) -> impl Into
             for kw in keywords {
                 let mut count = 0usize;
                 for drug in &drugs {
-                    if drug.atc.starts_with(prefix.as_str()) {
-                        continue;
-                    }
+                    if drug.atc.starts_with(prefix.as_str()) { continue; }
                     let text_lower = drug.text.to_lowercase();
                     if text_lower.contains(kw.as_str()) {
                         mentioning_substances.insert(drug.substances.clone());
@@ -1279,10 +1207,7 @@ async fn class_interactions_api(State(state): State<Arc<AppState>>) -> impl Into
 
         classes.sort_by(|a, b| b.potential_pairs.cmp(&a.potential_pairs));
 
-        Ok(ClassInteractionsResponse {
-            total_pairs,
-            classes,
-        })
+        Ok(ClassInteractionsResponse { total_pairs, classes })
     })
     .await;
 
