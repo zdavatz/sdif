@@ -62,6 +62,9 @@ struct Drug {
     active_substances: Vec<String>,
     interactions_text: String,
     route: String,
+    /// GTINs of the drug's packs (AmiKo `packages`, tenth `|` field), so an
+    /// eMediplan (CHMED16A) can name its medicaments by GTIN.
+    gtins: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +129,9 @@ fn main() -> Result<()> {
 }
 
 fn download_source_db(db_path: &str) -> Result<()> {
-    let db_dir = std::path::Path::new(db_path).parent().unwrap_or(std::path::Path::new("."));
+    let db_dir = std::path::Path::new(db_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
     std::fs::create_dir_all(db_dir)?;
 
     let zip_path = db_dir.join("amiko_db_full_idx_de.zip");
@@ -143,7 +148,12 @@ fn download_source_db(db_path: &str) -> Result<()> {
 
     println!("Extracting to {}...", db_dir.display());
     let status = std::process::Command::new("unzip")
-        .args(&["-o", zip_path.to_str().unwrap(), "-d", db_dir.to_str().unwrap()])
+        .args(&[
+            "-o",
+            zip_path.to_str().unwrap(),
+            "-d",
+            db_dir.to_str().unwrap(),
+        ])
         .status()
         .with_context(|| "Failed to run unzip")?;
     if !status.success() {
@@ -221,7 +231,10 @@ fn parse_epha_csv(path: &str) -> Result<Vec<EphaInteraction>> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
-            println!("EPha CSV not found at {} ({}), skipping EPha integration", path, e);
+            println!(
+                "EPha CSV not found at {} ({}), skipping EPha integration",
+                path, e
+            );
             return Ok(Vec::new());
         }
     };
@@ -246,7 +259,8 @@ fn parse_epha_csv(path: &str) -> Result<Vec<EphaInteraction>> {
                 let end = after.find("</p>").unwrap_or(after.len());
                 let raw = &after[..end];
                 let text = tag_re.replace_all(raw, "");
-                let text = text.replace("&rarr;", "→")
+                let text = text
+                    .replace("&rarr;", "→")
                     .replace("&amp;", "&")
                     .replace("&lt;", "<")
                     .replace("&gt;", ">")
@@ -348,7 +362,10 @@ fn run_build(db_path: &str, output_path: &str) -> Result<()> {
         println!("Loaded {} ATC codes from {}", map.len(), atc_csv_path);
         Some(map)
     } else {
-        println!("Warning: {} not found, skipping ATC cross-check (run with --download to fetch it)", atc_csv_path);
+        println!(
+            "Warning: {} not found, skipping ATC cross-check (run with --download to fetch it)",
+            atc_csv_path
+        );
         None
     };
 
@@ -370,7 +387,13 @@ fn run_build(db_path: &str, output_path: &str) -> Result<()> {
     let epha = parse_epha_csv("csv/drug_interactions_csv_de.csv")?;
     println!("Parsed {} EPha interaction records", epha.len());
 
-    write_interactions_db(output_path, &drugs, &interactions, &substance_to_brands, &epha)?;
+    write_interactions_db(
+        output_path,
+        &drugs,
+        &interactions,
+        &substance_to_brands,
+        &epha,
+    )?;
     println!("Wrote interactions database to: {}", output_path);
 
     // Severity stats
@@ -380,18 +403,27 @@ fn run_build(db_path: &str, output_path: &str) -> Result<()> {
         sev_counts[score as usize] += 1;
     }
     let classified = interactions.len() as u32 - sev_counts[0];
-    let pct = if interactions.is_empty() { 0 } else {
+    let pct = if interactions.is_empty() {
+        0
+    } else {
         (classified as f64 / interactions.len() as f64 * 100.0) as u32
     };
 
-    let drugs_with_interactions = drugs.iter().filter(|d| !d.interactions_text.is_empty()).count();
+    let drugs_with_interactions = drugs
+        .iter()
+        .filter(|d| !d.interactions_text.is_empty())
+        .count();
 
     let unique_pairs: HashSet<(&str, &str)> = interactions
         .iter()
         .map(|i| {
             let a = i.drug_substance.as_str();
             let b = i.interacting_substance.as_str();
-            if a <= b { (a, b) } else { (b, a) }
+            if a <= b {
+                (a, b)
+            } else {
+                (b, a)
+            }
         })
         .collect();
 
@@ -399,7 +431,11 @@ fn run_build(db_path: &str, output_path: &str) -> Result<()> {
     println!("  Drugs total:         {}", drugs.len());
     println!("  With interactions:   {}", drugs_with_interactions);
     println!("  Unique substances:   {}", substance_to_brands.len());
-    println!("  Interaction records: {} ({} unique substance pairs)", interactions.len(), unique_pairs.len());
+    println!(
+        "  Interaction records: {} ({} unique substance pairs)",
+        interactions.len(),
+        unique_pairs.len()
+    );
     println!("  Severity breakdown:");
     println!("    ### Kontraindiziert:  {:>6}", sev_counts[3]);
     println!("    ##  Schwerwiegend:    {:>6}", sev_counts[2]);
@@ -477,10 +513,15 @@ fn extract_interaction_section(content: &str) -> String {
 
         // Extract sentences/paragraphs that mention interactions
         let interaction_keywords = [
-            "interaktion", "wechselwirkung", "nicht kombinier",
-            "nicht gleichzeitig", "kontraindiziert mit",
-            "zusammen mit", "bei gleichzeitiger",
-            "potenzier", "neuromuskuläre blockade",
+            "interaktion",
+            "wechselwirkung",
+            "nicht kombinier",
+            "nicht gleichzeitig",
+            "kontraindiziert mit",
+            "zusammen mit",
+            "bei gleichzeitiger",
+            "potenzier",
+            "neuromuskuläre blockade",
         ];
 
         // Strip section header before splitting into sentences
@@ -501,12 +542,14 @@ fn extract_interaction_section(content: &str) -> String {
             let sentence_lower = sentence.to_lowercase();
             // Skip "siehe «Interaktionen»" back-references — these are cross-refs
             // to the Interaktionen section, not actual interaction content
-            let is_back_ref = sentence_lower.contains("siehe") && sentence_lower.contains("interaktion")
+            let is_back_ref = sentence_lower.contains("siehe")
+                && sentence_lower.contains("interaktion")
                 && !sentence_lower.contains("interaktion mit")
                 && !sentence_lower.contains("interaktionen von");
-            let mentions_interaction = !is_back_ref && interaction_keywords
-                .iter()
-                .any(|kw| sentence_lower.contains(kw));
+            let mentions_interaction = !is_back_ref
+                && interaction_keywords
+                    .iter()
+                    .any(|kw| sentence_lower.contains(kw));
             if mentions_interaction && sentence.len() > 20 {
                 if !supplementary.is_empty() {
                     supplementary.push_str(". ");
@@ -520,7 +563,10 @@ fn extract_interaction_section(content: &str) -> String {
         if main_section.is_empty() {
             return supplementary;
         }
-        format!("{} [Warnhinweise/Kontraindikationen:] {}", main_section, supplementary)
+        format!(
+            "{} [Warnhinweise/Kontraindikationen:] {}",
+            main_section, supplementary
+        )
     } else {
         main_section
     }
@@ -533,9 +579,8 @@ fn extract_substances_from_html(content: &str) -> Vec<String> {
     // 1. Header-only: "Wirkstoffe</p>" (substance in next <p>)
     // 2. Inline: "Wirkstoff: Ceritinib.</p>" or "Wirkstoffe: Mercaptamin (als ...).</p>"
     let wirkstoff_header_re = Regex::new(r"Wirkstoff(?:e|\(e\))?(?:\s|&#\d+;)*</p>").unwrap();
-    let wirkstoff_inline_re = Regex::new(
-        r"Wirkstoff(?:e|\(e\))?(?:\s*:\s*|\s+)([^<]+)</p>"
-    ).unwrap();
+    let wirkstoff_inline_re =
+        Regex::new(r"Wirkstoff(?:e|\(e\))?(?:\s*:\s*|\s+)([^<]+)</p>").unwrap();
     let p_tag_re = Regex::new(r#"<p[^>]*class="spacing1"[^>]*>(.*?)</p>"#).unwrap();
     let italic_re = Regex::new(r#"font-style:\s*italic"#).unwrap();
     let html_entity_re = Regex::new(r"&#\d+;").unwrap();
@@ -545,16 +590,15 @@ fn extract_substances_from_html(content: &str) -> Vec<String> {
     let mut substance_text = String::new();
 
     // Find the Zusammensetzung section title (in absTitle div), not a mention in body text
-    let zusammensetzung_re = Regex::new(
-        r#"(?i)class="absTitle"[^>]*>\s*Zusammensetzung"#
-    ).unwrap();
+    let zusammensetzung_re = Regex::new(r#"(?i)class="absTitle"[^>]*>\s*Zusammensetzung"#).unwrap();
     let zus_start = match zusammensetzung_re.find(content) {
         Some(m) => m.start(),
         None => return Vec::new(),
     };
     // Limit to the Zusammensetzung section (until next absTitle div)
     let next_section_re = Regex::new(r#"class="absTitle""#).unwrap();
-    let zus_end = next_section_re.find(&content[zus_start + 10..])
+    let zus_end = next_section_re
+        .find(&content[zus_start + 10..])
         .map(|m| zus_start + 10 + m.start())
         .unwrap_or(content.len());
     let zus_content = &content[zus_start..zus_end];
@@ -655,7 +699,9 @@ fn extract_substance_name(text: &str) -> String {
     }
 
     // Truncate at descriptive phrases: "ist ein...", "wird ...", "aus ..."
-    for phrase in &[" ist ein", " wird ", " aus ", " der ", " die ", " das ", " ein "] {
+    for phrase in &[
+        " ist ein", " wird ", " aus ", " der ", " die ", " das ", " ein ",
+    ] {
         if let Some(pos) = name.to_lowercase().find(phrase) {
             // Ensure we slice at valid char boundary in original string
             if name.is_char_boundary(pos) {
@@ -693,9 +739,22 @@ fn extract_substance_name(text: &str) -> String {
     // Reject fragments that start with common German words (sentence fragments, not substance names)
     let lower = name.to_lowercase();
     let reject_starts = [
-        "jeder ", "die ", "der ", "das ", "den ", "dem ", "des ",
-        "ein ", "eine ", "einer ", "einem ", "einen ",
-        "enthält", "besteht", "gereinigt", "konjugiert",
+        "jeder ",
+        "die ",
+        "der ",
+        "das ",
+        "den ",
+        "dem ",
+        "des ",
+        "ein ",
+        "eine ",
+        "einer ",
+        "einem ",
+        "einen ",
+        "enthält",
+        "besteht",
+        "gereinigt",
+        "konjugiert",
     ];
     for prefix in &reject_starts {
         if lower.starts_with(prefix) {
@@ -706,12 +765,27 @@ fn extract_substance_name(text: &str) -> String {
     name
 }
 
-fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>) -> Result<Vec<Drug>> {
+/// GTINs of the packs in AmiKo's `packages` column: one pack per line, fields
+/// separated by `|`, the GTIN (13 digits) in the tenth field.
+fn package_gtins(packages: &str) -> Vec<String> {
+    packages
+        .lines()
+        .filter_map(|l| l.split('|').nth(9))
+        .map(str::trim)
+        .filter(|g| g.len() == 13 && g.bytes().all(|b| b.is_ascii_digit()))
+        .map(str::to_string)
+        .collect()
+}
+
+fn parse_all_drugs(
+    conn: &Connection,
+    atc_map: Option<&HashMap<String, String>>,
+) -> Result<Vec<Drug>> {
     let mut stmt = conn.prepare(
-        "SELECT _id, title, atc, atc_class, content FROM amikodb WHERE content IS NOT NULL AND content != ''",
+        "SELECT _id, title, atc, atc_class, content, packages FROM amikodb WHERE content IS NOT NULL AND content != ''",
     )?;
 
-    let rows: Vec<(i64, String, String, String, String)> = stmt
+    let rows: Vec<(i64, String, String, String, String, String)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -719,6 +793,7 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
                 row.get::<_, Option<String>>(2)?.unwrap_or_default(),
                 row.get::<_, Option<String>>(3)?.unwrap_or_default(),
                 row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?.unwrap_or_default(),
             ))
         })?
         .filter_map(|r| r.ok())
@@ -732,7 +807,7 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
     let mut html_fallback_count = 0u32;
     let mut atc_valid_count = 0u32;
     let mut atc_invalid_count = 0u32;
-    for (idx, (id, title, atc, atc_class, content)) in rows.iter().enumerate() {
+    for (idx, (id, title, atc, atc_class, content, packages)) in rows.iter().enumerate() {
         if idx % 500 == 0 {
             eprint!("\r  Parsing drug {}/{}...", idx, rows.len());
         }
@@ -760,7 +835,11 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
                     atc_valid_count += 1;
                 } else {
                     atc_invalid_count += 1;
-                    eprintln!("  ATC mismatch: {} not found in atc.csv ({})", atc_code, title.trim());
+                    eprintln!(
+                        "  ATC mismatch: {} not found in atc.csv ({})",
+                        atc_code,
+                        title.trim()
+                    );
                 }
             }
         }
@@ -788,15 +867,21 @@ fn parse_all_drugs(conn: &Connection, atc_map: Option<&HashMap<String, String>>)
             active_substances,
             interactions_text,
             route,
+            gtins: package_gtins(packages),
         });
     }
     eprintln!("\r  Parsing done.                    ");
     if html_fallback_count > 0 {
-        println!("  Extracted substances from HTML for {} drugs (ATC column had no substance name)", html_fallback_count);
+        println!(
+            "  Extracted substances from HTML for {} drugs (ATC column had no substance name)",
+            html_fallback_count
+        );
     }
     if atc_map.is_some() {
-        println!("  ATC cross-check: {} valid, {} invalid",
-            atc_valid_count, atc_invalid_count);
+        println!(
+            "  ATC cross-check: {} valid, {} invalid",
+            atc_valid_count, atc_invalid_count
+        );
     }
 
     Ok(drugs)
@@ -809,18 +894,28 @@ fn derive_route(atc_code: &str, brand_name: &str, content: &str) -> &'static str
 
     // ATC-based topical routes
     // D = Dermatika, except systemic formulations (oral tablets, capsules, injections)
-    if atc_code.starts_with("D") && !atc_code.starts_with("D05BB") && !atc_code.starts_with("D05BX") {
+    if atc_code.starts_with("D") && !atc_code.starts_with("D05BB") && !atc_code.starts_with("D05BX")
+    {
         // Check brand name AND first part of FI content for oral/injectable keywords
         let content_lower = &content[..content.len().min(3000)].to_lowercase();
         let check = |kw: &str| name.contains(kw) || content_lower.contains(kw);
-        let is_oral = check("tabletten") || check("kapseln")
-            || check("filmtabletten") || check("weichkapseln")
-            || check("dragée") || name.contains("lösung zum einnehmen") || name.contains("sirup");
-        let is_injectable = check("injektionslösung") || check("infusionslösung")
-            || name.contains("fertigspritze") || name.contains("fertigpen")
-            || name.contains(" pen ") || name.contains(" pen,")
-            || name.contains("subkutan") || name.contains(" s.c.")
-            || name.contains(" i.v.") || name.contains(" i.m.")
+        let is_oral = check("tabletten")
+            || check("kapseln")
+            || check("filmtabletten")
+            || check("weichkapseln")
+            || check("dragée")
+            || name.contains("lösung zum einnehmen")
+            || name.contains("sirup");
+        let is_injectable = check("injektionslösung")
+            || check("infusionslösung")
+            || name.contains("fertigspritze")
+            || name.contains("fertigpen")
+            || name.contains(" pen ")
+            || name.contains(" pen,")
+            || name.contains("subkutan")
+            || name.contains(" s.c.")
+            || name.contains(" i.v.")
+            || name.contains(" i.m.")
             || name.contains("konzentrat zur herstellung");
         if !is_oral && !is_injectable {
             return "topisch";
@@ -844,19 +939,41 @@ fn derive_route(atc_code: &str, brand_name: &str, content: &str) -> &'static str
     }
 
     // Brand name patterns (more specific first)
-    if name.contains("infusion") || name.contains(" i.v.") || name.contains(",i.v.") || name.contains("konzentrat zur herstellung") {
+    if name.contains("infusion")
+        || name.contains(" i.v.")
+        || name.contains(",i.v.")
+        || name.contains("konzentrat zur herstellung")
+    {
         return "i.v.";
     }
-    if name.contains(" s.c.") || name.contains("subkutan") || name.contains("fertigspritze") || name.contains("fertigpen") || name.contains("pen ") {
+    if name.contains(" s.c.")
+        || name.contains("subkutan")
+        || name.contains("fertigspritze")
+        || name.contains("fertigpen")
+        || name.contains("pen ")
+    {
         return "s.c.";
     }
     if name.contains(" i.m.") || name.contains("intramuskulär") {
         return "i.m.";
     }
-    if name.contains(" gel") || name.contains(" creme") || name.contains(" cream") || name.contains(" salbe") || name.contains(" paste") || name.contains(" pflaster") || name.contains(" patch") {
+    if name.contains(" gel")
+        || name.contains(" creme")
+        || name.contains(" cream")
+        || name.contains(" salbe")
+        || name.contains(" paste")
+        || name.contains(" pflaster")
+        || name.contains(" patch")
+    {
         return "topisch";
     }
-    if name.contains("inhalat") || name.contains("dosieraerosol") || name.contains("turbuhaler") || name.contains("diskus") || name.contains("breezhaler") || name.contains("pulverinhalat") {
+    if name.contains("inhalat")
+        || name.contains("dosieraerosol")
+        || name.contains("turbuhaler")
+        || name.contains("diskus")
+        || name.contains("breezhaler")
+        || name.contains("pulverinhalat")
+    {
         return "inhalativ";
     }
     if name.contains("nasenspray") || name.contains("nasenlösung") || name.contains("rhinospray") {
@@ -877,7 +994,10 @@ fn derive_route(atc_code: &str, brand_name: &str, content: &str) -> &'static str
         return "nasal";
     }
     if atc_code.starts_with("R03") {
-        if name.contains("tabletten") || name.contains("lösung zum einnehmen") || name.contains("sirup") {
+        if name.contains("tabletten")
+            || name.contains("lösung zum einnehmen")
+            || name.contains("sirup")
+        {
             return "p.o.";
         }
         return "inhalativ";
@@ -1031,11 +1151,18 @@ fn strip_section_references(text: &str) -> String {
             // Expand backwards to include opening (
             let start = if pos > 0 {
                 let prev = &result[..pos];
-                if prev.ends_with('(') { pos - 1 } else { pos }
-            } else { pos };
+                if prev.ends_with('(') {
+                    pos - 1
+                } else {
+                    pos
+                }
+            } else {
+                pos
+            };
             // Expand forwards to end of reference (next sentence boundary or closing bracket)
             let rest = &result[pos..];
-            let end = rest.find(|c: char| c == '.' || c == ';' || c == ')' || c == '\n')
+            let end = rest
+                .find(|c: char| c == '.' || c == ';' || c == ')' || c == '\n')
                 .map(|i| pos + i + 1)
                 .unwrap_or(result.len());
             result.replace_range(start..end, " ");
@@ -1180,10 +1307,34 @@ pub fn severity_indicator(score: u8) -> &'static str {
 fn is_common_word(s: &str) -> bool {
     matches!(
         s,
-        "oder" | "anti" | "wasser" | "wirkstoffe" | "nicht" | "aber" | "auch"
-            | "wird" | "kann" | "sind" | "eine" | "dies" | "nach" | "über"
-            | "mehr" | "alle" | "dazu" | "etwa" | "noch" | "hier" | "sehr"
-            | "gabe" | "glas" | "darm" | "laut" | "teil" | "fall" | "form"
+        "oder"
+            | "anti"
+            | "wasser"
+            | "wirkstoffe"
+            | "nicht"
+            | "aber"
+            | "auch"
+            | "wird"
+            | "kann"
+            | "sind"
+            | "eine"
+            | "dies"
+            | "nach"
+            | "über"
+            | "mehr"
+            | "alle"
+            | "dazu"
+            | "etwa"
+            | "noch"
+            | "hier"
+            | "sehr"
+            | "gabe"
+            | "glas"
+            | "darm"
+            | "laut"
+            | "teil"
+            | "fall"
+            | "form"
     )
 }
 
@@ -1271,6 +1422,11 @@ fn write_interactions_db(
             combo_hint TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX idx_drugs_brand ON drugs(brand_name);
+        CREATE TABLE drug_gtins (
+            gtin TEXT NOT NULL,
+            drug_id INTEGER NOT NULL
+        );
+        CREATE INDEX idx_drug_gtins ON drug_gtins(gtin);
         CREATE INDEX idx_drugs_atc ON drugs(atc_code);
 
         CREATE TABLE interactions (
@@ -1334,8 +1490,14 @@ fn write_interactions_db(
         let mut stmt = conn.prepare(
             "INSERT INTO drugs (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
+        let mut gtin_stmt =
+            conn.prepare("INSERT INTO drug_gtins (gtin, drug_id) VALUES (?1, ?2)")?;
         for drug in drugs {
-            let combo_hint = derive_combo_hint(&drug.title, &drug.atc_code, &drug.active_substances);
+            for gtin in &drug.gtins {
+                gtin_stmt.execute(params![gtin, drug.id])?;
+            }
+            let combo_hint =
+                derive_combo_hint(&drug.title, &drug.atc_code, &drug.active_substances);
             stmt.execute(params![
                 drug.id,
                 drug.title,
@@ -1374,9 +1536,11 @@ fn write_interactions_db(
     }
 
     {
-        let mut stmt = conn
-            .prepare("INSERT INTO substance_brand_map (substance, brand_name, route) VALUES (?1, ?2, ?3)")?;
-        let brand_route: HashMap<&str, &str> = drugs.iter()
+        let mut stmt = conn.prepare(
+            "INSERT INTO substance_brand_map (substance, brand_name, route) VALUES (?1, ?2, ?3)",
+        )?;
+        let brand_route: HashMap<&str, &str> = drugs
+            .iter()
             .map(|d| (d.title.as_str(), d.route.as_str()))
             .collect();
         for (substance, brands) in substance_to_brands {
@@ -1409,9 +1573,8 @@ fn write_interactions_db(
 
     // Insert class keywords from keywords.txt
     {
-        let mut stmt = conn.prepare(
-            "INSERT INTO class_keywords (atc_prefix, keyword) VALUES (?1, ?2)",
-        )?;
+        let mut stmt =
+            conn.prepare("INSERT INTO class_keywords (atc_prefix, keyword) VALUES (?1, ?2)")?;
         for (prefix, keywords) in parse_class_keywords() {
             for keyword in &keywords {
                 stmt.execute(params![prefix, keyword])?;
@@ -1424,23 +1587,49 @@ fn write_interactions_db(
         let mut stmt = conn.prepare(
             "INSERT INTO cyp_rules (enzyme, text_pattern, role, atc_prefix, substance) VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
-        for (enzyme, text_patterns, inhib_atc, inhib_subst, induc_atc, induc_subst) in cyp_rule_data() {
+        for (enzyme, text_patterns, inhib_atc, inhib_subst, induc_atc, induc_subst) in
+            cyp_rule_data()
+        {
             for pattern in &text_patterns {
                 // Inhibitor ATC prefixes
                 for atc in &inhib_atc {
-                    stmt.execute(params![enzyme, pattern, "inhibitor", atc, Option::<&str>::None])?;
+                    stmt.execute(params![
+                        enzyme,
+                        pattern,
+                        "inhibitor",
+                        atc,
+                        Option::<&str>::None
+                    ])?;
                 }
                 // Inhibitor substances
                 for subst in &inhib_subst {
-                    stmt.execute(params![enzyme, pattern, "inhibitor", Option::<&str>::None, subst])?;
+                    stmt.execute(params![
+                        enzyme,
+                        pattern,
+                        "inhibitor",
+                        Option::<&str>::None,
+                        subst
+                    ])?;
                 }
                 // Inducer ATC prefixes
                 for atc in &induc_atc {
-                    stmt.execute(params![enzyme, pattern, "inducer", atc, Option::<&str>::None])?;
+                    stmt.execute(params![
+                        enzyme,
+                        pattern,
+                        "inducer",
+                        atc,
+                        Option::<&str>::None
+                    ])?;
                 }
                 // Inducer substances
                 for subst in &induc_subst {
-                    stmt.execute(params![enzyme, pattern, "inducer", Option::<&str>::None, subst])?;
+                    stmt.execute(params![
+                        enzyme,
+                        pattern,
+                        "inducer",
+                        Option::<&str>::None,
+                        subst
+                    ])?;
                 }
             }
         }
@@ -1470,17 +1659,31 @@ fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Resul
     let rows: Vec<(String, String, String, String, String, u8, String)> = if let Some(lim) = limit {
         stmt.query_map(params![pattern, lim], |row| {
             Ok((
-                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
-                row.get(4)?, row.get(5)?, row.get(6)?,
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
             ))
-        })?.filter_map(|r| r.ok()).collect()
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
     } else {
         stmt.query_map(params![pattern], |row| {
             Ok((
-                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
-                row.get(4)?, row.get(5)?, row.get(6)?,
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
             ))
-        })?.filter_map(|r| r.ok()).collect()
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
     };
 
     if rows.is_empty() {
@@ -1496,16 +1699,24 @@ fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Resul
         )?;
         println!(
             "Found {} interactions matching \"{}\" (showing top {}):\n",
-            total, term, rows.len()
+            total,
+            term,
+            rows.len()
         );
     } else {
-        println!(
-            "Found {} interactions matching \"{}\":\n",
-            rows.len(), term
-        );
+        println!("Found {} interactions matching \"{}\":\n", rows.len(), term);
     }
 
-    for (drug_brand, _drug_substance, interacting_substance, interacting_brands, desc, sev_score, sev_label) in &rows {
+    for (
+        drug_brand,
+        _drug_substance,
+        interacting_substance,
+        interacting_brands,
+        desc,
+        sev_score,
+        sev_label,
+    ) in &rows
+    {
         let other_brands = if interacting_brands.is_empty() {
             String::new()
         } else {
@@ -1535,15 +1746,38 @@ fn search_interactions(db_path: &str, term: &str, limit: Option<usize>) -> Resul
          ORDER BY severity_score DESC"
     };
     let mut epha_stmt = conn.prepare(epha_query)?;
-    let epha_rows: Vec<(String, String, String, String, String, String, u8)> = if let Some(lim) = limit {
-        epha_stmt.query_map(params![pattern, lim], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
-        })?.filter_map(|r| r.ok()).collect()
-    } else {
-        epha_stmt.query_map(params![pattern], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
-        })?.filter_map(|r| r.ok()).collect()
-    };
+    let epha_rows: Vec<(String, String, String, String, String, String, u8)> =
+        if let Some(lim) = limit {
+            epha_stmt
+                .query_map(params![pattern, lim], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect()
+        } else {
+            epha_stmt
+                .query_map(params![pattern], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
 
     if !epha_rows.is_empty() {
         println!("--- EPha results ({}) ---\n", epha_rows.len());
@@ -1565,7 +1799,12 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
     let mut stmt = conn.prepare(
         "SELECT brand_name, atc_code, active_substances, interactions_text FROM drugs WHERE length(interactions_text) > 0 AND atc_code IS NOT NULL AND atc_code != ''"
     )?;
-    struct DrugRow { _brand: String, atc: String, substances: String, text: String }
+    struct DrugRow {
+        _brand: String,
+        atc: String,
+        substances: String,
+        text: String,
+    }
     let drugs: Vec<DrugRow> = stmt
         .query_map([], |row| {
             Ok(DrugRow {
@@ -1590,7 +1829,10 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
     // Group drugs by ATC prefix
     let mut drugs_in_class: HashMap<String, usize> = HashMap::new();
     for (prefix, _) in &class_keywords {
-        let count = drugs.iter().filter(|d| d.atc.starts_with(prefix.as_str())).count();
+        let count = drugs
+            .iter()
+            .filter(|d| d.atc.starts_with(prefix.as_str()))
+            .count();
         drugs_in_class.insert(prefix.to_string(), count);
     }
 
@@ -1631,19 +1873,34 @@ fn list_class_interactions(db_path: &str) -> Result<()> {
         // Each mentioning substance group × each drug in class = potential class-level interaction pairs
         let pair_count = (n_mentioning as u64) * (n_in_class as u64);
         total_interactions += pair_count;
-        class_results.push((prefix.to_string(), n_in_class, n_mentioning, pair_count, best_keyword));
+        class_results.push((
+            prefix.to_string(),
+            n_in_class,
+            n_mentioning,
+            pair_count,
+            best_keyword,
+        ));
     }
 
     // Sort by pair count descending
     class_results.sort_by(|a, b| b.3.cmp(&a.3));
 
-    println!("{:<10} {:>12} {:>18} {:>18}   {}", "ATC Class", "Drugs in Cl.", "Drugs Mentioning", "Potential Pairs", "Top Keyword");
+    println!(
+        "{:<10} {:>12} {:>18} {:>18}   {}",
+        "ATC Class", "Drugs in Cl.", "Drugs Mentioning", "Potential Pairs", "Top Keyword"
+    );
     println!("{}", "-".repeat(90));
     for (prefix, n_in, n_mention, pairs, keyword) in &class_results {
-        println!("{:<10} {:>12} {:>18} {:>18}   {}", prefix, n_in, n_mention, pairs, keyword);
+        println!(
+            "{:<10} {:>12} {:>18} {:>18}   {}",
+            prefix, n_in, n_mention, pairs, keyword
+        );
     }
     println!("{}", "-".repeat(90));
-    println!("Total potential class-level interaction pairs: {}", total_interactions);
+    println!(
+        "Total potential class-level interaction pairs: {}",
+        total_interactions
+    );
 
     Ok(())
 }
@@ -1744,7 +2001,10 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 for (desc, sev_score, sev_label) in &rows {
                     println!(
                         "\nINTERACTION [substance match]: {} <-> {} | Severity: {} ({})",
-                        a.brand, b.brand, severity_indicator(*sev_score), sev_label
+                        a.brand,
+                        b.brand,
+                        severity_indicator(*sev_score),
+                        sev_label
                     );
                     println!("  Via substance: {}", subst);
                     println!("  {}", desc);
@@ -1766,7 +2026,10 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 for (desc, sev_score, sev_label) in &rows {
                     println!(
                         "\nINTERACTION [substance match]: {} <-> {} | Severity: {} ({})",
-                        b.brand, a.brand, severity_indicator(*sev_score), sev_label
+                        b.brand,
+                        a.brand,
+                        severity_indicator(*sev_score),
+                        sev_label
                     );
                     println!("  Via substance: {}", subst);
                     println!("  {}", desc);
@@ -1776,23 +2039,33 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
 
             // Strategy 2: Full-text search for class-level interactions
             // Search A's interaction text for keywords related to B's drug class
-            let class_hits_ab = find_class_interactions(&a.interactions_text, &b.atc_code, &class_keywords);
+            let class_hits_ab =
+                find_class_interactions(&a.interactions_text, &b.atc_code, &class_keywords);
             for hit in &class_hits_ab {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
                     "\nINTERACTION [class-level]: {} <-> {} ({}) | Severity: {} ({})",
-                    a.brand, b.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
+                    a.brand,
+                    b.brand,
+                    hit.class_keyword,
+                    severity_indicator(sev_score),
+                    sev_label
                 );
                 println!("  {}", hit.context);
                 found_any = true;
             }
 
-            let class_hits_ba = find_class_interactions(&b.interactions_text, &a.atc_code, &class_keywords);
+            let class_hits_ba =
+                find_class_interactions(&b.interactions_text, &a.atc_code, &class_keywords);
             for hit in &class_hits_ba {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
                     "\nINTERACTION [class-level]: {} <-> {} ({}) | Severity: {} ({})",
-                    b.brand, a.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
+                    b.brand,
+                    a.brand,
+                    hit.class_keyword,
+                    severity_indicator(sev_score),
+                    sev_label
                 );
                 println!("  {}", hit.context);
                 found_any = true;
@@ -1800,23 +2073,33 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
 
             // Strategy 3: CYP enzyme interactions
             // Check if A's text mentions a CYP enzyme and B is a known inhibitor/inducer
-            let cyp_hits_ab = find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances, &cyp_rules);
+            let cyp_hits_ab =
+                find_cyp_interactions(&a.interactions_text, &b.atc_code, &b.substances, &cyp_rules);
             for hit in &cyp_hits_ab {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
                     "\nINTERACTION [CYP]: {} <-> {} ({}) | Severity: {} ({})",
-                    a.brand, b.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
+                    a.brand,
+                    b.brand,
+                    hit.class_keyword,
+                    severity_indicator(sev_score),
+                    sev_label
                 );
                 println!("  {}", hit.context);
                 found_any = true;
             }
 
-            let cyp_hits_ba = find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules);
+            let cyp_hits_ba =
+                find_cyp_interactions(&b.interactions_text, &a.atc_code, &a.substances, &cyp_rules);
             for hit in &cyp_hits_ba {
                 let (sev_score, sev_label) = score_severity(&hit.context);
                 println!(
                     "\nINTERACTION [CYP]: {} <-> {} ({}) | Severity: {} ({})",
-                    b.brand, a.brand, hit.class_keyword, severity_indicator(sev_score), sev_label
+                    b.brand,
+                    a.brand,
+                    hit.class_keyword,
+                    severity_indicator(sev_score),
+                    sev_label
                 );
                 println!("  {}", hit.context);
                 found_any = true;
@@ -1841,7 +2124,9 @@ fn basket_check(db_path: &str, basket: &[&str]) -> Result<()> {
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
-            for (risk_class, risk_label, effect, mechanism, measures, sev_score, _title) in &epha_rows {
+            for (risk_class, risk_label, effect, mechanism, measures, sev_score, _title) in
+                &epha_rows
+            {
                 println!(
                     "\nINTERACTION [EPha]: {} <-> {} | Risikoklasse: {} ({})",
                     a.brand, b.brand, risk_class, risk_label
@@ -1887,55 +2172,115 @@ fn parse_class_keywords() -> Vec<(String, Vec<String>)> {
 
 /// CYP rule data used during build to populate the cyp_rules table.
 /// Returns (enzyme, text_patterns, inhibitor_atc, inhibitor_substances, inducer_atc, inducer_substances).
-fn cyp_rule_data() -> Vec<(&'static str, Vec<&'static str>, Vec<&'static str>, Vec<&'static str>, Vec<&'static str>, Vec<&'static str>)> {
+fn cyp_rule_data() -> Vec<(
+    &'static str,
+    Vec<&'static str>,
+    Vec<&'static str>,
+    Vec<&'static str>,
+    Vec<&'static str>,
+    Vec<&'static str>,
+)> {
     vec![
-        ("CYP3A4",
-         vec!["cyp3a4", "cyp3a"],
-         vec!["J05AE", "J02A", "J01FA"],
-         vec!["ritonavir", "cobicistat", "itraconazol", "ketoconazol", "voriconazol",
-              "posaconazol", "fluconazol", "clarithromycin", "erythromycin",
-              "diltiazem", "verapamil", "grapefruit"],
-         vec!["J04AB", "N03AF", "N03AB"],
-         vec!["rifampicin", "rifabutin", "carbamazepin", "phenytoin", "phenobarbital",
-              "johanniskraut", "efavirenz", "nevirapin"]),
-        ("CYP2D6",
-         vec!["cyp2d6"],
-         vec![],
-         vec!["fluoxetin", "paroxetin", "bupropion", "chinidin", "terbinafin",
-              "duloxetin", "ritonavir", "cobicistat"],
-         vec![],
-         vec!["rifampicin"]),
-        ("CYP2C9",
-         vec!["cyp2c9"],
-         vec![],
-         vec!["fluconazol", "amiodaron", "miconazol", "voriconazol", "fluvoxamin"],
-         vec![],
-         vec!["rifampicin", "carbamazepin", "phenytoin"]),
-        ("CYP2C19",
-         vec!["cyp2c19"],
-         vec![],
-         vec!["omeprazol", "esomeprazol", "fluvoxamin", "fluconazol", "voriconazol",
-              "ticlopidin"],
-         vec![],
-         vec!["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
-        ("CYP1A2",
-         vec!["cyp1a2"],
-         vec!["J01MA"],
-         vec!["ciprofloxacin", "fluvoxamin", "enoxacin"],
-         vec![],
-         vec!["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"]),
-        ("CYP2C8",
-         vec!["cyp2c8"],
-         vec![],
-         vec!["gemfibrozil", "clopidogrel", "trimethoprim"],
-         vec![],
-         vec!["rifampicin"]),
-        ("CYP2B6",
-         vec!["cyp2b6"],
-         vec![],
-         vec!["ticlopidin", "clopidogrel"],
-         vec![],
-         vec!["rifampicin", "efavirenz"]),
+        (
+            "CYP3A4",
+            vec!["cyp3a4", "cyp3a"],
+            vec!["J05AE", "J02A", "J01FA"],
+            vec![
+                "ritonavir",
+                "cobicistat",
+                "itraconazol",
+                "ketoconazol",
+                "voriconazol",
+                "posaconazol",
+                "fluconazol",
+                "clarithromycin",
+                "erythromycin",
+                "diltiazem",
+                "verapamil",
+                "grapefruit",
+            ],
+            vec!["J04AB", "N03AF", "N03AB"],
+            vec![
+                "rifampicin",
+                "rifabutin",
+                "carbamazepin",
+                "phenytoin",
+                "phenobarbital",
+                "johanniskraut",
+                "efavirenz",
+                "nevirapin",
+            ],
+        ),
+        (
+            "CYP2D6",
+            vec!["cyp2d6"],
+            vec![],
+            vec![
+                "fluoxetin",
+                "paroxetin",
+                "bupropion",
+                "chinidin",
+                "terbinafin",
+                "duloxetin",
+                "ritonavir",
+                "cobicistat",
+            ],
+            vec![],
+            vec!["rifampicin"],
+        ),
+        (
+            "CYP2C9",
+            vec!["cyp2c9"],
+            vec![],
+            vec![
+                "fluconazol",
+                "amiodaron",
+                "miconazol",
+                "voriconazol",
+                "fluvoxamin",
+            ],
+            vec![],
+            vec!["rifampicin", "carbamazepin", "phenytoin"],
+        ),
+        (
+            "CYP2C19",
+            vec!["cyp2c19"],
+            vec![],
+            vec![
+                "omeprazol",
+                "esomeprazol",
+                "fluvoxamin",
+                "fluconazol",
+                "voriconazol",
+                "ticlopidin",
+            ],
+            vec![],
+            vec!["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"],
+        ),
+        (
+            "CYP1A2",
+            vec!["cyp1a2"],
+            vec!["J01MA"],
+            vec!["ciprofloxacin", "fluvoxamin", "enoxacin"],
+            vec![],
+            vec!["rifampicin", "carbamazepin", "phenytoin", "johanniskraut"],
+        ),
+        (
+            "CYP2C8",
+            vec!["cyp2c8"],
+            vec![],
+            vec!["gemfibrozil", "clopidogrel", "trimethoprim"],
+            vec![],
+            vec!["rifampicin"],
+        ),
+        (
+            "CYP2B6",
+            vec!["cyp2b6"],
+            vec![],
+            vec!["ticlopidin", "clopidogrel"],
+            vec![],
+            vec!["rifampicin", "efavirenz"],
+        ),
     ]
 }
 
@@ -1979,7 +2324,15 @@ pub fn load_cyp_rules(conn: &Connection) -> Vec<CypRule> {
         .prepare("SELECT enzyme, text_pattern, role, atc_prefix, substance FROM cyp_rules ORDER BY enzyme")
         .expect("cyp_rules table missing");
     let rows: Vec<(String, String, String, Option<String>, Option<String>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
         .expect("failed to query cyp_rules")
         .filter_map(|r| r.ok())
         .collect();
@@ -2029,7 +2382,11 @@ pub fn load_cyp_rules(conn: &Connection) -> Vec<CypRule> {
 }
 
 /// Search a drug's interaction text for class-level keywords that match the other drug.
-pub fn find_class_interactions(interaction_text: &str, other_atc: &str, class_keywords: &[(String, Vec<String>)]) -> Vec<ClassHit> {
+pub fn find_class_interactions(
+    interaction_text: &str,
+    other_atc: &str,
+    class_keywords: &[(String, Vec<String>)],
+) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 
@@ -2056,26 +2413,47 @@ pub fn find_class_interactions(interaction_text: &str, other_atc: &str, class_ke
 }
 
 /// CYP enzyme interaction detection using pre-loaded rules from the DB.
-pub fn find_cyp_interactions(interaction_text: &str, other_atc: &str, other_substances: &[String], cyp_rules: &[CypRule]) -> Vec<ClassHit> {
+pub fn find_cyp_interactions(
+    interaction_text: &str,
+    other_atc: &str,
+    other_substances: &[String],
+    cyp_rules: &[CypRule],
+) -> Vec<ClassHit> {
     let text_lower = interaction_text.to_lowercase();
     let mut hits = Vec::new();
 
-    let other_subst_lower: Vec<String> = other_substances.iter().map(|s| s.to_lowercase()).collect();
+    let other_subst_lower: Vec<String> =
+        other_substances.iter().map(|s| s.to_lowercase()).collect();
 
     for rule in cyp_rules {
         // Check if interaction text mentions this CYP enzyme
-        let mentioned = rule.text_patterns.iter().any(|p| text_lower.contains(p.as_str()));
+        let mentioned = rule
+            .text_patterns
+            .iter()
+            .any(|p| text_lower.contains(p.as_str()));
         if !mentioned {
             continue;
         }
 
         // Check if the other drug is a known inhibitor
-        let is_inhibitor = rule.inhibitor_atc.iter().any(|prefix| other_atc.starts_with(prefix.as_str()))
-            || rule.inhibitor_substances.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
+        let is_inhibitor = rule
+            .inhibitor_atc
+            .iter()
+            .any(|prefix| other_atc.starts_with(prefix.as_str()))
+            || rule
+                .inhibitor_substances
+                .iter()
+                .any(|s| other_subst_lower.iter().any(|os| os == s));
 
         // Check if the other drug is a known inducer
-        let is_inducer = rule.inducer_atc.iter().any(|prefix| other_atc.starts_with(prefix.as_str()))
-            || rule.inducer_substances.iter().any(|s| other_subst_lower.iter().any(|os| os == s));
+        let is_inducer = rule
+            .inducer_atc
+            .iter()
+            .any(|prefix| other_atc.starts_with(prefix.as_str()))
+            || rule
+                .inducer_substances
+                .iter()
+                .any(|s| other_subst_lower.iter().any(|os| os == s));
 
         if is_inhibitor || is_inducer {
             let role = if is_inhibitor { "Hemmer" } else { "Induktor" };

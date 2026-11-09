@@ -68,10 +68,24 @@ Running `sdif` without a subcommand defaults to `build`.
 
 The `check` command accepts both brand names (Ponstan, Marcoumar) and substance names (Phenprocoumon, Mefenaminsäure). Substance names are resolved to their brand via the substance-brand map.
 
+## Clinical decision support API (CHMED16A)
+
+`POST https://sdif.oddb.org/api/chmed16a` takes a medication plan in the eMediplan format CHMED16A — as
+`CHMED16A1` + base64 of the gzipped JSON (the QR code's content), `CHMED16A0` + JSON, or plain JSON — and
+returns a risk assessment: each medicament as found (by GTIN, `IdType` 2, or by name), the highest severity
+(0 none, 1 caution, 2 severe, 3 contraindicated) and every interaction between the medicaments with its
+severity, description and source (Swissmedic FI or EPha).
+
+```bash
+curl -X POST https://sdif.oddb.org/api/chmed16a -H 'Content-Type: application/json' \
+  -d '{"Medicaments":[{"Id":"7680307850299","IdType":2},{"Id":"7680193950011","IdType":2}]}'
+```
+
 ## Output
 
 Generates `db/interactions.db` with the following tables:
 
+- **drug_gtins** — GTIN of every pack of a drug, so a medication plan can name its drugs by GTIN
 - **drugs** — brand name, ATC code, ATC class, active substances, raw interaction text, administration route (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., etc.), combination therapy hint (e.g. "Zugelassene Kombitherapie mit ASS" for Rivaroxaban vascular). Downstream apps can read `route` and `combo_hint` from their existing `SELECT ... FROM drugs` queries
 - **interactions** — pre-computed substance-level interactions with context snippets, severity score and label
 - **substance_brand_map** — maps substance names to brand names with route indicator. No extra table or JOIN needed for route info

@@ -67,6 +67,7 @@ sdif search "QT-Verlängerung" -l 5
 - 0 = **Keine Einstufung** (`-`): no severity keywords found
 
 ## Database schema (interactions.db)
+- `drug_gtins` (gtin, drug_id) — every pack GTIN of a drug from AmiKo's `packages` column (tenth `|` field), for `/api/chmed16a`
 - `drugs` (id, brand_name, atc_code, atc_class, active_substances, interactions_text, route, combo_hint) — route derived from ATC code + brand name + FI content (topisch, i.v., p.o., s.c., inhalativ, nasal, ophthalm., otisch, rektal, i.m., or empty for default/oral); D-code drugs with oral/injectable formulation keywords in FI content (e.g. Weichkapseln, Injektionslösung) are correctly identified as systemic; combo_hint for approved combination therapies (e.g. Rivaroxaban vascular + ASS) and multi-substance products. Downstream apps can add `route` and `combo_hint` to their existing `SELECT ... FROM drugs` queries — no new table or JOIN needed
 - `interactions` (drug_brand, drug_substance, interacting_substance, interacting_brands, description, severity_score, severity_label)
 - `substance_brand_map` (substance, brand_name, route)
@@ -92,7 +93,8 @@ python3 generate_stats.py
 
 ## Web UI
 - `sdif serve` starts Axum web server, serves `static/index.html` via `include_str!`
-- API: `/api/search-drugs` (with `?q=` or `?atc=`), `/api/check`, `/api/search-interactions`, `/api/suggest-terms`, `/api/class-interactions`
+- API: `/api/search-drugs` (with `?q=` or `?atc=`), `/api/check`, `/api/chmed16a`, `/api/search-interactions`, `/api/suggest-terms`, `/api/class-interactions`
+- `POST /api/chmed16a` (09.11.2026, clinical decision support for the pharmacy systems of T&R Pharma: ProPharma sends a customer's medication plan in CHMED16A and wants a risk assessment back): body `CHMED16A1` + base64 of the gzipped JSON (QR-code form), `CHMED16A0` + JSON, or plain JSON; each of `Medicaments` is found by GTIN (`IdType` 2, table `drug_gtins`) or, for another id type with a non-numeric `Id`, by name like `/api/check`; Pharmacodes (`IdType` 3) are not resolved. Answer: `medicaments` (id, id_type, brand, atc_code — brand empty when not found), `max_severity_score` (0–3) and `max_severity_label`, and `interactions` exactly as `/api/check` gives them (same `interactions_for`). Invalid input answers 400
 - Frontend: vanilla HTML/CSS/JS, no build step
 - Features: autocomplete with keyboard nav (↑/↓/Enter), auto-check on basket change, severity badge right after drug pair title, route indicators (topisch, i.v., s.c., etc.) next to drug names, systemic-first sorting within same severity, severity-colored cards with explanations, FI quality hints for asymmetric severity pairs, "mehr anzeigen" pagination in clinical search, sortable ATC class table, shareable URLs with ATC codes (`?tab=check&drugs=M01AG01-B01AA04`), HTML entity decoding in descriptions, basket/clear hidden when empty, card actions (copy text to clipboard, send feedback via mailto to zdavatz@ywesee.com with card content and page URL)
 - With `--epha`: source badges (Swissmedic FI / EPha) on interaction cards, EPha results in basket check and clinical search
@@ -109,3 +111,4 @@ python3 generate_stats.py
 ## Dependencies
 - `rusqlite` (bundled SQLite), `regex`, `aho-corasick`, `anyhow`, `serde`/`serde_json`, `clap`
 - `axum`, `tokio`, `tower-http` (web server)
+- `flate2`, `base64` (CHMED16A1 decoding)
